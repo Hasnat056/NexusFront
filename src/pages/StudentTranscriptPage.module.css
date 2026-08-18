@@ -1,0 +1,46 @@
+.devNote {
+  background: var(--color-surface-sunken);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: 0.85rem 1.1rem;
+  margin: 0;
+  font-size: 0.78rem;
+  color: var(--color-muted);
+  line-height: 1.5;
+}
+
+.overviewBody {
+  display: flex;
+  flex-direction: column;
+  gap: 1.1rem;
+  padding: 1.15rem;
+}
+
+.overviewStats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 1rem;
+}
+
+.trendBlock {
+  /* EnrollmentTrendChart's viewBox (640x194) and its label/text font sizes are fixed px values
+   * calibrated for its usual half-width placement (Admin dashboard's 2-column chartsRow) — left
+   * unconstrained here, this Panel's full content width (~800px+) would scale everything up ~2x,
+   * same out-of-proportion problem this app already worked through once with ResultsDistributionChart. */
+  max-width: 34rem;
+  border-top: 1px solid var(--color-border);
+  padding-top: 1rem;
+}
+
+.trendLabel {
+  margin: 0 0 0.4rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--color-muted);
+}
+
+.panelFooter {
+  display: flex;
+  justify-content: flex-end;
+  padding: 0.7rem 1.15rem 0.9rem;
+}

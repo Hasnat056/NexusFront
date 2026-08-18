@@ -1,0 +1,38 @@
+:root {
+  --color-bg: #f8f6f2;
+  --color-surface: #ffffff;
+  --color-surface-sunken: #f0ece3;
+  --color-border: #ece7dc;
+  --color-ink: #26201a;
+  --color-muted: #8a8071;
+
+  --color-accent: #c2a06a;
+  --color-accent-soft: rgba(194, 160, 106, 0.15);
+  --color-accent-glow: rgba(194, 160, 106, 0.09);
+  --color-on-accent: #241c10;
+
+  --color-good: #3f8a5c;
+  --color-good-soft: rgba(63, 138, 92, 0.12);
+  --color-warning: #c1602a;
+  --color-warning-soft: rgba(193, 96, 42, 0.12);
+  --color-critical: #b23b3b;
+  --color-critical-soft: rgba(178, 59, 59, 0.12);
+
+  --color-rail-bg: #1d1811;
+  --color-rail-muted: #948a76;
+  --color-rail-active-bg: rgba(194, 160, 106, 0.18);
+  --color-rail-active-fg: #e0bd82;
+
+  --color-login-surface: var(--color-surface);
+  --color-login-border: var(--color-border);
+  --color-login-ink: var(--color-ink);
+  --color-login-muted: var(--color-muted);
+
+  --font-display: ui-serif, "New York", Georgia, serif;
+  --font-body: ui-sans-serif, system-ui, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "Cascadia Code", "Roboto Mono", Menlo, monospace;
+
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+}

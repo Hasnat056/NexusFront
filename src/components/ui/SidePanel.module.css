@@ -1,0 +1,98 @@
+.panel {
+  flex: 0 0 300px;
+  width: 300px;
+  border-left: 1px solid var(--color-border);
+  display: flex;
+  flex-direction: column;
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem 1.15rem;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.head h3 {
+  font-family: var(--font-display);
+  font-size: 0.98rem;
+  margin: 0;
+  font-weight: 700;
+}
+
+.count {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--color-on-accent);
+  background: var(--color-accent);
+  border-radius: 999px;
+  padding: 0.1rem 0.5rem;
+}
+
+.headExtra {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.closeBtn {
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-muted);
+  border-radius: var(--radius-sm);
+  font-size: 15px;
+  line-height: 1;
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+.closeBtn:hover {
+  background: var(--color-surface-sunken);
+  color: var(--color-ink);
+}
+
+.reopenTab {
+  position: absolute;
+  top: 1.15rem;
+  right: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-right: none;
+  border-radius: var(--radius-md) 0 0 var(--radius-md);
+  padding: 0.5rem 0.7rem;
+  color: var(--color-muted);
+  font-size: 0.72rem;
+  font-weight: 600;
+  font-family: inherit;
+  box-shadow: -6px 0 12px -8px rgba(0, 0, 0, 0.18);
+  cursor: pointer;
+}
+
+.reopenTab:hover {
+  color: var(--color-ink);
+}
+
+.reopenTab svg {
+  width: 14px;
+  height: 14px;
+}
+
+.list {
+  flex: 1 1 auto;
+  overflow: auto;
+}
+
+.empty {
+  padding: 1.15rem;
+  font-size: 0.82rem;
+  color: var(--color-muted);
+}

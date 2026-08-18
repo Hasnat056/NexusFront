@@ -1,0 +1,93 @@
+.wrap {
+  padding: 1.1rem 1.15rem 1.3rem;
+}
+
+.chartFrame {
+  position: relative;
+  width: 100%;
+}
+
+.svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.grid {
+  stroke: var(--color-border);
+  stroke-width: 1;
+}
+
+.axisLine {
+  stroke: var(--color-border);
+  stroke-width: 1;
+}
+
+.axisLabel {
+  font-family: var(--font-body);
+  font-size: 9.5px;
+  fill: var(--color-muted);
+}
+
+.stem {
+  stroke: var(--color-border);
+  stroke-width: 1;
+}
+
+.pointLabel {
+  font-family: var(--font-body);
+  font-size: 10.5px;
+  font-weight: 700;
+  fill: var(--color-ink);
+}
+
+.point {
+  cursor: pointer;
+  transition: opacity 0.15s ease;
+}
+
+.point:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+.tooltip {
+  position: absolute;
+  transform: translate(-50%, calc(-100% - 14px));
+  background: var(--color-ink);
+  color: var(--color-bg);
+  font-size: 0.72rem;
+  line-height: 1.4;
+  padding: 0.45rem 0.65rem;
+  border-radius: var(--radius-sm);
+  white-space: nowrap;
+  pointer-events: none;
+  box-shadow: 0 8px 18px -8px rgba(0, 0, 0, 0.35);
+  z-index: 1;
+}
+
+.legend {
+  margin-top: 0.7rem;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 1rem;
+  font-size: 0.74rem;
+  color: var(--color-muted);
+  border-top: 1px solid var(--color-border);
+  padding-top: 0.7rem;
+}
+
+.legendItem {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.swatch {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+}

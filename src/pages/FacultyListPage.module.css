@@ -1,0 +1,15 @@
+.nameLink {
+  color: var(--color-ink);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.nameLink:hover {
+  color: var(--color-accent);
+}
+
+.empty {
+  color: var(--color-muted);
+  font-size: 0.86rem;
+  margin: 0;
+}

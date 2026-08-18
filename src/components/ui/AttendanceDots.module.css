@@ -1,0 +1,23 @@
+.dots {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  align-items: center;
+}
+
+.dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  background: var(--color-good);
+  flex: 0 0 auto;
+}
+
+.dot[data-present="false"] {
+  background: var(--color-critical);
+}
+
+.more {
+  font-size: 0.74rem;
+  color: var(--color-muted);
+}

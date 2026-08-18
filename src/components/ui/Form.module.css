@@ -1,0 +1,217 @@
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+}
+
+.sectionTitle {
+  font-family: var(--font-display);
+  font-size: 0.95rem;
+  font-weight: 700;
+  margin: 0;
+}
+
+.row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 0.9rem;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.field label {
+  font-size: 0.76rem;
+  font-weight: 600;
+  color: var(--color-muted);
+}
+
+.field input,
+.field select,
+.field textarea {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 0.6rem 0.75rem;
+  font-size: 0.86rem;
+  font-family: inherit;
+  color: var(--color-ink);
+  background: var(--color-surface);
+}
+
+.field input:focus-visible,
+.field select:focus-visible,
+.field textarea:focus-visible {
+  outline: none;
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 3px var(--color-accent-soft);
+}
+
+.field input:read-only,
+.field input:disabled,
+.field select:disabled {
+  background: var(--color-surface-sunken);
+  color: var(--color-muted);
+  cursor: not-allowed;
+}
+
+.hint {
+  font-size: 0.72rem;
+  color: var(--color-muted);
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+}
+
+.primaryButton {
+  background: var(--color-accent);
+  color: var(--color-on-accent);
+  border: none;
+  border-radius: var(--radius-md);
+  padding: 0.65rem 1.2rem;
+  font-weight: 700;
+  font-size: 0.85rem;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.primaryButton:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.primaryButton:hover {
+  filter: brightness(1.04);
+}
+
+.secondaryButton {
+  background: transparent;
+  color: var(--color-muted);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 0.65rem 1.2rem;
+  font-weight: 600;
+  font-size: 0.85rem;
+  cursor: pointer;
+  font-family: inherit;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+}
+
+.secondaryButton:hover {
+  color: var(--color-ink);
+  border-color: var(--color-ink);
+}
+
+.dangerButton {
+  background: transparent;
+  color: var(--color-critical);
+  border: 1px solid var(--color-critical);
+  border-radius: var(--radius-md);
+  padding: 0.65rem 1.2rem;
+  font-weight: 600;
+  font-size: 0.85rem;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.dangerButton:hover {
+  background: var(--color-critical-soft);
+}
+
+.dangerButton:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.banner {
+  border-radius: var(--radius-md);
+  padding: 0.75rem 0.9rem;
+  font-size: 0.82rem;
+  background: var(--color-accent-glow);
+  border: 1px solid var(--color-accent-soft);
+  color: var(--color-ink);
+}
+
+.errorBanner {
+  border-radius: var(--radius-md);
+  padding: 0.75rem 0.9rem;
+  font-size: 0.82rem;
+  background: var(--color-critical-soft);
+  border: 1px solid var(--color-critical);
+  color: var(--color-critical);
+}
+
+.imageRow {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+}
+
+.imageRow input[type="file"] {
+  font-size: 0.8rem;
+  color: var(--color-muted);
+}
+
+.linkButton {
+  background: none;
+  border: none;
+  color: var(--color-accent);
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+  padding: 0;
+  text-decoration: none;
+  display: inline-block;
+}
+
+.linkButton:hover {
+  text-decoration: underline;
+}
+
+.fieldError {
+  font-size: 0.72rem;
+  color: var(--color-critical);
+}
+
+.qualificationsHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.qualRow {
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 0.9rem 1rem;
+  background: var(--color-surface-sunken);
+}
+
+.qualRowFooter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.checkboxField {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.8rem;
+  color: var(--color-muted);
+  font-weight: 600;
+}
+
+.checkboxField input {
+  width: auto;
+}

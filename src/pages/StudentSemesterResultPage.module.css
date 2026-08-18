@@ -1,0 +1,47 @@
+.overviewStats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 1rem;
+  padding: 1.15rem;
+}
+
+.courseList {
+  display: flex;
+  flex-direction: column;
+}
+
+.courseBlock {
+  padding: 1rem 1.15rem;
+}
+
+.courseBlock:not(:last-child) {
+  border-bottom: 1px solid var(--color-border);
+}
+
+.courseBlockLinked {
+  background: var(--color-accent-glow);
+}
+
+.courseHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  margin-bottom: 0.65rem;
+}
+
+.courseCode {
+  font-family: var(--font-mono);
+  font-size: 0.76rem;
+  color: var(--color-muted);
+  margin-top: 0.1rem;
+}
+
+.courseStats {
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+  font-size: 0.82rem;
+  color: var(--color-muted);
+}

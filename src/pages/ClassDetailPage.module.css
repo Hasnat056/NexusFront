@@ -1,0 +1,36 @@
+.courseGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(220px, 1fr));
+  gap: 0.6rem 1rem;
+  margin-bottom: 0.6rem;
+}
+
+.courseItem {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.courseItem select {
+  flex: 1;
+  min-width: 0;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 0.6rem 0.75rem;
+  font-size: 0.86rem;
+  font-family: inherit;
+  color: var(--color-ink);
+  background: var(--color-surface);
+}
+
+.courseItem select:focus-visible {
+  outline: none;
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 3px var(--color-accent-soft);
+}
+
+@media (max-width: 640px) {
+  .courseGrid {
+    grid-template-columns: 1fr;
+  }
+}

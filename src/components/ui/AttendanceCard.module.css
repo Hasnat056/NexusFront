@@ -1,0 +1,76 @@
+.card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: 1.1rem 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+}
+
+.head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.6rem;
+}
+
+.kicker {
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  color: var(--color-accent);
+  font-weight: 700;
+  letter-spacing: 0.03em;
+}
+
+.title {
+  font-family: var(--font-display);
+  font-size: 1rem;
+  font-weight: 700;
+  margin-top: 0.15rem;
+}
+
+.faculty {
+  font-size: 0.78rem;
+  color: var(--color-muted);
+}
+
+.scoreRow {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  padding-top: 0.15rem;
+}
+
+.scoreValue {
+  font-family: var(--font-display);
+  font-size: 1.7rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.scoreValue[data-tone="good"] {
+  color: var(--color-good);
+}
+
+.scoreValue[data-tone="warning"] {
+  color: var(--color-warning);
+}
+
+.scoreValue[data-tone="critical"] {
+  color: var(--color-critical);
+}
+
+.scoreLabel {
+  font-size: 0.8rem;
+  color: var(--color-muted);
+}
+
+.toggle {
+  align-self: flex-start;
+}
+
+.empty {
+  color: var(--color-muted);
+  font-size: 0.82rem;
+}

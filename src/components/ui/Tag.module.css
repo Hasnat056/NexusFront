@@ -1,0 +1,32 @@
+.tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 0.24rem 0.55rem;
+  border-radius: var(--radius-sm);
+}
+
+.tag::before {
+  content: "";
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.tag[data-tone="good"] {
+  color: var(--color-good);
+  background: var(--color-good-soft);
+}
+
+.tag[data-tone="warning"] {
+  color: var(--color-warning);
+  background: var(--color-warning-soft);
+}
+
+.tag[data-tone="critical"] {
+  color: var(--color-critical);
+  background: var(--color-critical-soft);
+}

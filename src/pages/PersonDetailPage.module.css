@@ -1,0 +1,124 @@
+.back {
+  display: inline-block;
+  font-size: 0.82rem;
+  color: var(--color-muted);
+  text-decoration: none;
+}
+
+.pendingRow {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-top: 0.2rem;
+}
+
+.back:hover {
+  color: var(--color-ink);
+}
+
+.notFound {
+  color: var(--color-muted);
+}
+
+.profileCard {
+  display: flex;
+  align-items: center;
+  gap: 1.1rem;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: 1.3rem 1.5rem;
+  flex-wrap: wrap;
+}
+
+.avatar {
+  width: 56px;
+  height: 56px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: var(--color-accent-soft);
+  color: var(--color-on-accent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 1.2rem;
+}
+
+.profileMain {
+  flex: 1 1 220px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.35rem;
+}
+
+.name {
+  font-family: var(--font-display);
+  font-size: 1.25rem;
+  font-weight: 700;
+  margin: 0;
+  letter-spacing: -0.01em;
+}
+
+.subline {
+  font-size: 0.84rem;
+  color: var(--color-muted);
+  margin: 0;
+}
+
+.detailGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1.2rem;
+}
+
+@media (max-width: 800px) {
+  .detailGrid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.fields {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.65rem 1.4rem;
+  font-size: 0.86rem;
+  margin: 0;
+  padding: 1rem 1.15rem;
+}
+
+.fields dt {
+  color: var(--color-muted);
+  font-weight: 600;
+}
+
+.fields dd {
+  margin: 0;
+  color: var(--color-ink);
+}
+
+.empty {
+  color: var(--color-muted);
+  font-size: 0.86rem;
+  margin: 0;
+  padding: 1rem 1.15rem;
+}
+
+.panelBody {
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+  padding: 1rem 1.15rem;
+}
+
+.editCard {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: 1.6rem 1.8rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.3rem;
+}

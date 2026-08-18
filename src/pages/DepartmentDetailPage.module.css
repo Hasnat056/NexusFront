@@ -1,0 +1,119 @@
+.hodRow {
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+  flex-wrap: wrap;
+  padding: 1rem 1.15rem;
+}
+
+.hodInfo {
+  flex: 1 1 220px;
+}
+
+.hodRole {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-muted);
+  font-weight: 600;
+  margin-bottom: 0.15rem;
+}
+
+.hodName {
+  font-family: var(--font-display);
+  font-size: 1.05rem;
+  font-weight: 700;
+}
+
+.hodSub {
+  font-size: 0.8rem;
+  color: var(--color-muted);
+}
+
+.hodEditRow {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.hodSelect {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 0.6rem 0.75rem;
+  font-size: 0.86rem;
+  font-family: inherit;
+  color: var(--color-ink);
+  background: var(--color-surface);
+  min-width: 240px;
+}
+
+.hodSelect:focus-visible {
+  outline: none;
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 3px var(--color-accent-soft);
+}
+
+.pillReview {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  flex-wrap: wrap;
+  margin: 0 1.15rem 1.15rem;
+  padding: 0.5rem 0.7rem 0.5rem 0.55rem;
+  border-radius: 999px;
+  background: var(--color-surface-sunken);
+  border: 1px solid var(--color-border);
+  width: fit-content;
+}
+
+.pillWho {
+  font-size: 0.8rem;
+  color: var(--color-muted);
+}
+
+.pillDivider {
+  width: 1px;
+  height: 14px;
+  background: var(--color-border);
+}
+
+.pillBtn {
+  font-family: inherit;
+  font-weight: 700;
+  padding: 0.34rem 0.75rem;
+  font-size: 0.76rem;
+  border-radius: 999px;
+  cursor: pointer;
+  border: 1px solid transparent;
+}
+
+.pillBtn.apply {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+  color: var(--color-on-accent);
+}
+
+.pillBtn.apply:hover {
+  filter: brightness(1.05);
+}
+
+.pillBtn.decline {
+  background: transparent;
+  border-color: var(--color-critical);
+  color: var(--color-critical);
+}
+
+.pillBtn.decline:hover {
+  background: var(--color-critical-soft);
+}
+
+.pillFootnote {
+  font-size: 0.76rem;
+  color: var(--color-muted);
+  text-decoration: none;
+}
+
+.pillFootnote:hover {
+  color: var(--color-ink);
+}
