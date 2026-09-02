@@ -1,61 +1,86 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { DashboardShell } from "../components/layout/DashboardShell";
-import type { RailNavItem } from "../components/layout/Rail";
-import { IconScroll, IconHourglass, IconInbox, IconBars, IconBook, IconBuilding, IconCalendar, IconClipboard, IconGraduationCap, IconLayers, IconGrid, IconPeople, IconPerson, IconUserCheck } from "../components/icons/Icons";
+import { useAdminPageConfig } from "../components/layout/AdminShellContext";
 import { Breadcrumbs } from "../components/ui/Breadcrumbs";
-import { createCourse, emptyCourseFormValue, mockCourses, validateCreditHours } from "../data/courseDirectory";
-import { mockAdminDashboardResponse } from "../data/adminDashboard";
-import { mockCurrentSession } from "../data/session";
+import { apiGetAllPages, apiMutate, cached, invalidateCache } from "../lib/auth";
+import { ApiError, apiFormErrors } from "../lib/api";
+import type { AdminCourse } from "../types/api";
 import formStyles from "../components/ui/Form.module.css";
 import styles from "./PersonCreatePage.module.css";
 
-const RAIL_ITEMS: RailNavItem[] = [
-  { id: "dashboard", label: "Dashboard", icon: IconGrid, href: "/admin/dashboard" },
-  { id: "faculty", label: "Faculty", icon: IconPerson, href: "/admin/faculty" },
-  { id: "students", label: "Students", icon: IconPeople, href: "/admin/students" },
-  { id: "departments", label: "Departments", icon: IconBuilding, href: "/admin/departments" },
-  { id: "programs", label: "Programs", icon: IconLayers, href: "/admin/programs" },
-  { id: "courses", label: "Courses", icon: IconBook, href: "/admin/courses" },
-  { id: "classes", label: "Classes", icon: IconGraduationCap, href: "/admin/classes" },
-  { id: "allocations", label: "Allocations", icon: IconClipboard, href: "/admin/allocations" },
-  { id: "enrollments", label: "Enrollments", icon: IconUserCheck, href: "/admin/enrollments" },
-  { id: "sessions", label: "Sessions", icon: IconCalendar, href: "/admin/sessions" },
-  { id: "semesters", label: "Semesters", icon: IconHourglass, href: "/admin/semesters" },
-  { id: "transcripts", label: "Transcripts", icon: IconScroll, href: "/admin/transcripts" },
-  { id: "requests", label: "Requests", icon: IconInbox, href: "/admin/requests" },
-  { id: "reports", label: "Reports", icon: IconBars },
-];
+interface CourseFormValue {
+  course_code: string;
+  course_name: string;
+  credit_hours: string;
+  lab: boolean;
+  pre_requisite: string;
+  description: string;
+}
+
+function validateCreditHours(value: number): string | null {
+  if (value < 0) return "Credit hours cannot be negative.";
+  if (value > 5) return "Credit hours cannot be greater than 5.";
+  return null;
+}
 
 export function CourseCreatePage() {
   const navigate = useNavigate();
-  const admin = mockAdminDashboardResponse.admin;
-  const avatarInitials = `${admin.first_name[0]}${admin.last_name[0]}`.toUpperCase();
-  const [value, setValue] = useState(emptyCourseFormValue());
+  useAdminPageConfig("New course");
+  const [existingCourses, setExistingCourses] = useState<AdminCourse[]>([]);
+  const [value, setValue] = useState<CourseFormValue>({
+    course_code: "",
+    course_name: "",
+    credit_hours: "3",
+    lab: false,
+    pre_requisite: "",
+    description: "",
+  });
   const [error, setError] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  const [submitting, setSubmitting] = useState(false);
 
-  function handleSubmit(e: React.FormEvent) {
+  useEffect(() => {
+    cached("admin:courses", () => apiGetAllPages<AdminCourse>("/admin/courses/"))
+      .then(setExistingCourses)
+      .catch((err: unknown) => {
+        if (err instanceof ApiError && err.status === 401) {
+          navigate("/login", { replace: true });
+        }
+      });
+  }, [navigate]);
+
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     const creditHoursError = validateCreditHours(Number(value.credit_hours));
     if (creditHoursError) {
       setError(creditHoursError);
       return;
     }
-    const record = createCourse(value);
-    navigate(`/admin/courses/${record.course_code}`);
+    setError(null);
+    setFieldErrors({});
+    setSubmitting(true);
+    try {
+      const record = await apiMutate<AdminCourse>("/admin/courses/", "POST", {
+        course_code: value.course_code,
+        course_name: value.course_name,
+        credit_hours: Number(value.credit_hours) || 0,
+        lab: value.lab,
+        pre_requisite: value.pre_requisite || null,
+        description: value.description || null,
+      });
+      invalidateCache("admin:courses");
+      navigate(`/admin/courses/${record.course_code}`);
+    } catch (err) {
+      const { banner, fields } = apiFormErrors(err);
+      setError(banner);
+      setFieldErrors(fields);
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   return (
-    <DashboardShell
-      railItems={RAIL_ITEMS}
-      activeRailId="courses"
-      homeHref="/admin/dashboard"
-      avatarInitials={avatarInitials}
-      pageTitle="New course"
-      sessionLabel={mockCurrentSession}
-      subtitle={admin.institutional_email}
-      profileHref="/admin/profile"
-    >
+    <>
       <Breadcrumbs
         items={[
           { label: "Dashboard", href: "/admin/dashboard" },
@@ -74,7 +99,7 @@ export function CourseCreatePage() {
         {error && <div className={formStyles.errorBanner}>{error}</div>}
 
         <div className={formStyles.row}>
-          <div className={formStyles.field}>
+          <div className={formStyles.field} data-invalid={fieldErrors.course_code ? "true" : undefined}>
             <label htmlFor="course_code">Course code</label>
             <input
               id="course_code"
@@ -83,8 +108,9 @@ export function CourseCreatePage() {
               placeholder="CS-1101"
               required
             />
+            {fieldErrors.course_code && <span className={formStyles.fieldError}>{fieldErrors.course_code}</span>}
           </div>
-          <div className={formStyles.field}>
+          <div className={formStyles.field} data-invalid={fieldErrors.course_name ? "true" : undefined}>
             <label htmlFor="course_name">Course name</label>
             <input
               id="course_name"
@@ -92,8 +118,9 @@ export function CourseCreatePage() {
               onChange={(e) => setValue({ ...value, course_name: e.target.value })}
               required
             />
+            {fieldErrors.course_name && <span className={formStyles.fieldError}>{fieldErrors.course_name}</span>}
           </div>
-          <div className={formStyles.field}>
+          <div className={formStyles.field} data-invalid={fieldErrors.pre_requisite ? "true" : undefined}>
             <label htmlFor="pre_requisite">Prerequisite</label>
             <select
               id="pre_requisite"
@@ -101,17 +128,18 @@ export function CourseCreatePage() {
               onChange={(e) => setValue({ ...value, pre_requisite: e.target.value })}
             >
               <option value="">None</option>
-              {mockCourses.map((c) => (
+              {existingCourses.map((c) => (
                 <option key={c.course_code} value={c.course_code}>
                   {c.course_code} — {c.course_name}
                 </option>
               ))}
             </select>
+            {fieldErrors.pre_requisite && <span className={formStyles.fieldError}>{fieldErrors.pre_requisite}</span>}
           </div>
         </div>
 
         <div className={formStyles.row}>
-          <div className={formStyles.field}>
+          <div className={formStyles.field} data-invalid={fieldErrors.credit_hours ? "true" : undefined}>
             <label htmlFor="credit_hours">Lecture credit hours</label>
             <input
               id="credit_hours"
@@ -123,8 +151,9 @@ export function CourseCreatePage() {
               If this course has a lab, 1 credit hour is added automatically on save — enter the
               lecture portion only.
             </span>
+            {fieldErrors.credit_hours && <span className={formStyles.fieldError}>{fieldErrors.credit_hours}</span>}
           </div>
-          <div className={formStyles.field}>
+          <div className={formStyles.field} data-invalid={fieldErrors.lab ? "true" : undefined}>
             <label className={formStyles.checkboxField}>
               <input
                 type="checkbox"
@@ -133,11 +162,12 @@ export function CourseCreatePage() {
               />
               Has a lab component
             </label>
+            {fieldErrors.lab && <span className={formStyles.fieldError}>{fieldErrors.lab}</span>}
           </div>
         </div>
 
         <div className={formStyles.row}>
-          <div className={formStyles.field}>
+          <div className={formStyles.field} data-invalid={fieldErrors.description ? "true" : undefined}>
             <label htmlFor="description">Description</label>
             <textarea
               id="description"
@@ -145,18 +175,19 @@ export function CourseCreatePage() {
               value={value.description}
               onChange={(e) => setValue({ ...value, description: e.target.value })}
             />
+            {fieldErrors.description && <span className={formStyles.fieldError}>{fieldErrors.description}</span>}
           </div>
         </div>
 
         <div className={formStyles.actions}>
-          <button type="submit" className={formStyles.primaryButton}>
-            Create course
+          <button type="submit" className={formStyles.primaryButton} disabled={submitting}>
+            {submitting ? "Creating…" : "Create course"}
           </button>
           <Link to="/admin/courses" className={formStyles.secondaryButton}>
             Cancel
           </Link>
         </div>
       </form>
-    </DashboardShell>
+    </>
   );
 }

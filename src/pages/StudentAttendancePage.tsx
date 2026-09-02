@@ -1,37 +1,77 @@
+import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { DashboardShell } from "../components/layout/DashboardShell";
-import type { RailNavItem } from "../components/layout/Rail";
-import { IconCalendar, IconGrid, IconPerson, IconScroll, IconTerminal, IconUserCheck } from "../components/icons/Icons";
+import { STUDENT_RAIL_ITEMS } from "../components/layout/studentRailItems";
 import { AttendanceCard } from "../components/ui/AttendanceCard";
-import { mockStudentAttendance } from "../data/studentAttendance";
-import { mockStudentDashboardResponse } from "../data/studentDashboard";
+import { apiGet, apiGetAllPages } from "../lib/auth";
+import { ApiError, apiErrorMessage } from "../lib/api";
+import type { StudentAttendanceSummary, StudentDashboardResponse } from "../types/api";
+import formStyles from "../components/ui/Form.module.css";
 import styles from "./StudentAttendancePage.module.css";
 import pageStyles from "./PersonDetailPage.module.css";
 
-const RAIL_ITEMS: RailNavItem[] = [
-  { id: "dashboard", label: "Dashboard", icon: IconGrid, href: "/student/dashboard" },
-  { id: "enrollments", label: "Enrollments", icon: IconUserCheck, href: "/student/enrollments" },
-  { id: "transcript", label: "Transcript", icon: IconScroll, href: "/student/transcript" },
-  { id: "attendance", label: "Attendance", icon: IconCalendar, href: "/student/attendance" },
-  { id: "profile", label: "Profile", icon: IconPerson, href: "/student/profile" },
-  { id: "scratchpad", label: "Scratchpad", icon: IconTerminal, href: "/student/scratchpad" },
-];
-
 export function StudentAttendancePage() {
-  const dashboard = mockStudentDashboardResponse;
-  const avatarInitials = `${dashboard.first_name[0]}${dashboard.last_name[0]}`.toUpperCase();
+  const navigate = useNavigate();
+  const [dashboard, setDashboard] = useState<StudentDashboardResponse | null>(null);
+  const [attendance, setAttendance] = useState<StudentAttendanceSummary[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    Promise.all([
+      apiGet<StudentDashboardResponse>("/student/dashboard/"),
+      apiGetAllPages<StudentAttendanceSummary>("/student/attendance/"),
+    ])
+      .then(([dashboardRes, attendanceRes]) => {
+        if (cancelled) return;
+        setDashboard(dashboardRes);
+        setAttendance(attendanceRes);
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        if (err instanceof ApiError && err.status === 401) {
+          navigate("/login", { replace: true });
+          return;
+        }
+        setError(apiErrorMessage(err));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [navigate]);
+
+  const avatarInitials = dashboard ? `${dashboard.first_name[0]}${dashboard.last_name[0]}`.toUpperCase() : "—";
+
+  if (error) {
+    return (
+      <DashboardShell railItems={STUDENT_RAIL_ITEMS} activeRailId="attendance" homeHref="/student/dashboard" profileHref="/student/profile" avatarInitials={avatarInitials} pageTitle="Attendance" subtitle="">
+        <div className={formStyles.errorBanner}>{error}</div>
+      </DashboardShell>
+    );
+  }
+
+  if (!dashboard || !attendance) {
+    return (
+      <DashboardShell railItems={STUDENT_RAIL_ITEMS} activeRailId="attendance" homeHref="/student/dashboard" profileHref="/student/profile" avatarInitials={avatarInitials} pageTitle="Attendance" subtitle="">
+        <p className={pageStyles.empty}>Loading attendance…</p>
+      </DashboardShell>
+    );
+  }
 
   return (
     <DashboardShell
-      railItems={RAIL_ITEMS}
+      railItems={STUDENT_RAIL_ITEMS}
       activeRailId="attendance"
       homeHref="/student/dashboard"
+      profileHref="/student/profile"
       avatarInitials={avatarInitials}
+      avatarSrc={dashboard.image}
       pageTitle="Attendance"
       subtitle={dashboard.institutional_email}
     >
-      {mockStudentAttendance.length > 0 ? (
+      {attendance.length > 0 ? (
         <div className={styles.grid}>
-          {mockStudentAttendance.map((summary) => (
+          {attendance.map((summary) => (
             <AttendanceCard key={summary.url} summary={summary} />
           ))}
         </div>

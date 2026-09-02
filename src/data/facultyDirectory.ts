@@ -1,4 +1,4 @@
-import type { AdminFacultyDetail, FacultyDesignation, Gender } from "../types/api";
+import type { AdminFacultyDetail, AdminFacultyListItem, FacultyDesignation, Gender } from "../types/api";
 import type { FacultyListRow, PersonFormShape } from "../types/dashboard";
 import { qualificationFormItemsToWire, qualificationsToFormItems } from "./qualificationForm";
 import { createChangeRequest } from "./changeRequests";
@@ -110,7 +110,7 @@ export const DESIGNATIONS: FacultyDesignation[] = [
 
 export const GENDERS: Gender[] = ["Male", "Female", "Others"];
 
-export function selectFacultyListRows(records: MockFacultyRecord[]): FacultyListRow[] {
+export function selectFacultyListRows(records: AdminFacultyListItem[]): FacultyListRow[] {
   return records.map((f) => ({
     employeeId: f.person.person_id,
     name: `${f.person.first_name} ${f.person.last_name}`,
@@ -152,7 +152,7 @@ export function emptyFacultyFormValue(): FacultyFormValue {
     confirm_password: "",
     address: { country: "Pakistan", province: "", city: "", zipcode: "", street_address: "" },
     qualification_set: [],
-    department: "CS",
+    department: "",
     designation: "Lecturer",
     joining_date: "",
   };

@@ -1,30 +1,90 @@
+import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { DashboardShell } from "../components/layout/DashboardShell";
-import type { RailNavItem } from "../components/layout/Rail";
-import { IconBook, IconGrid, IconPerson } from "../components/icons/Icons";
+import { FACULTY_RAIL_ITEMS } from "../components/layout/facultyRailItems";
 import { CourseCard } from "../components/ui/CourseCard";
-import { mockFacultyAllocations, selectFacultyCourseCards, sortFacultyAllocationsForList } from "../data/facultyAllocations";
-import { mockFacultyDashboardResponse } from "../data/facultyDashboard";
+import { selectFacultyCourseCards, sortFacultyAllocationsForList } from "../data/facultyAllocations";
+import { apiGet, apiGetAllPages } from "../lib/auth";
+import { ApiError, apiErrorMessage } from "../lib/api";
+import type { FacultyCourseAllocation, FacultyDashboardResponse } from "../types/api";
+import formStyles from "../components/ui/Form.module.css";
 import styles from "./FacultyDashboardPage.module.css";
 import listStyles from "./PersonDetailPage.module.css";
 
-const RAIL_ITEMS: RailNavItem[] = [
-  { id: "dashboard", label: "Dashboard", icon: IconGrid, href: "/faculty/dashboard" },
-  { id: "allocations", label: "Allocations", icon: IconBook, href: "/faculty/allocations" },
-  { id: "profile", label: "Profile", icon: IconPerson, href: "/faculty/profile" },
-];
-
 export function FacultyAllocationListPage() {
-  const dashboard = mockFacultyDashboardResponse;
+  const navigate = useNavigate();
+  const [dashboard, setDashboard] = useState<FacultyDashboardResponse | null>(null);
+  const [allocations, setAllocations] = useState<FacultyCourseAllocation[]>([]);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    Promise.all([
+      apiGet<FacultyDashboardResponse>("/faculty/dashboard/"),
+      apiGetAllPages<FacultyCourseAllocation>("/faculty/allocations/"),
+    ])
+      .then(([dashboardRes, allocationsRes]) => {
+        if (cancelled) return;
+        setDashboard(dashboardRes);
+        setAllocations(allocationsRes);
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        if (err instanceof ApiError && err.status === 401) {
+          navigate("/login", { replace: true });
+          return;
+        }
+        setError(apiErrorMessage(err));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [navigate]);
+
+  if (error) {
+    return (
+      <DashboardShell
+        railItems={FACULTY_RAIL_ITEMS}
+        activeRailId="allocations"
+        homeHref="/faculty/dashboard"
+        profileHref="/faculty/profile"
+        avatarInitials="—"
+        pageTitle="Allocations"
+        subtitle=""
+      >
+        <div className={formStyles.errorBanner}>{error}</div>
+      </DashboardShell>
+    );
+  }
+
+  if (!dashboard) {
+    return (
+      <DashboardShell
+        railItems={FACULTY_RAIL_ITEMS}
+        activeRailId="allocations"
+        homeHref="/faculty/dashboard"
+        profileHref="/faculty/profile"
+        avatarInitials="—"
+        pageTitle="Allocations"
+        subtitle=""
+      >
+        <p className={listStyles.empty}>Loading allocations…</p>
+      </DashboardShell>
+    );
+  }
+
   const avatarInitials = `${dashboard.faculty.first_name[0]}${dashboard.faculty.last_name[0]}`.toUpperCase();
-  const ordered = sortFacultyAllocationsForList(mockFacultyAllocations);
+  const ordered = sortFacultyAllocationsForList(allocations);
   const courseCards = selectFacultyCourseCards(ordered);
 
   return (
     <DashboardShell
-      railItems={RAIL_ITEMS}
+      railItems={FACULTY_RAIL_ITEMS}
       activeRailId="allocations"
       homeHref="/faculty/dashboard"
+      profileHref="/faculty/profile"
       avatarInitials={avatarInitials}
+      avatarSrc={dashboard.faculty.image}
       pageTitle="Allocations"
       subtitle={`${dashboard.faculty.institutional_email} · Ongoing first, then completed`}
     >

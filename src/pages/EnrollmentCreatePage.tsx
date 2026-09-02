@@ -1,79 +1,67 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { DashboardShell } from "../components/layout/DashboardShell";
-import type { RailNavItem } from "../components/layout/Rail";
-import {
-  IconScroll,
-  IconHourglass,
-  IconInbox,
-  IconBars,
-  IconBook,
-  IconBuilding,
-  IconCalendar,
-  IconClipboard,
-  IconGraduationCap,
-  IconLayers,
-  IconGrid,
-  IconPeople,
-  IconPerson,
-  IconUserCheck,
-} from "../components/icons/Icons";
+import { useAdminPageConfig } from "../components/layout/AdminShellContext";
 import { Breadcrumbs } from "../components/ui/Breadcrumbs";
-import { semesterRefById } from "../data/allocationDirectory";
-import { createEnrollment, eligibleAllocationsForEnrollment, emptyEnrollmentFormValue } from "../data/enrollmentDirectory";
-import { mockStudentDirectory } from "../data/studentDirectory";
-import { mockAdminDashboardResponse } from "../data/adminDashboard";
-import { mockCurrentSession } from "../data/session";
+import { apiGetAllPages, apiMutate, cached, invalidateCache } from "../lib/auth";
+import { ApiError, apiFormErrors } from "../lib/api";
+import type { AdminCourseAllocationSummary, AdminEnrollmentSummary, AdminStudentListItem } from "../types/api";
 import formStyles from "../components/ui/Form.module.css";
 import styles from "./PersonCreatePage.module.css";
 
-const RAIL_ITEMS: RailNavItem[] = [
-  { id: "dashboard", label: "Dashboard", icon: IconGrid, href: "/admin/dashboard" },
-  { id: "faculty", label: "Faculty", icon: IconPerson, href: "/admin/faculty" },
-  { id: "students", label: "Students", icon: IconPeople, href: "/admin/students" },
-  { id: "departments", label: "Departments", icon: IconBuilding, href: "/admin/departments" },
-  { id: "programs", label: "Programs", icon: IconLayers, href: "/admin/programs" },
-  { id: "courses", label: "Courses", icon: IconBook, href: "/admin/courses" },
-  { id: "classes", label: "Classes", icon: IconGraduationCap, href: "/admin/classes" },
-  { id: "allocations", label: "Allocations", icon: IconClipboard, href: "/admin/allocations" },
-  { id: "enrollments", label: "Enrollments", icon: IconUserCheck, href: "/admin/enrollments" },
-  { id: "sessions", label: "Sessions", icon: IconCalendar, href: "/admin/sessions" },
-  { id: "semesters", label: "Semesters", icon: IconHourglass, href: "/admin/semesters" },
-  { id: "transcripts", label: "Transcripts", icon: IconScroll, href: "/admin/transcripts" },
-  { id: "requests", label: "Requests", icon: IconInbox, href: "/admin/requests" },
-  { id: "reports", label: "Reports", icon: IconBars },
-];
-
 export function EnrollmentCreatePage() {
   const navigate = useNavigate();
-  const admin = mockAdminDashboardResponse.admin;
-  const avatarInitials = `${admin.first_name[0]}${admin.last_name[0]}`.toUpperCase();
-  const [value, setValue] = useState(emptyEnrollmentFormValue());
+  useAdminPageConfig("New enrollment");
+  const [students, setStudents] = useState<AdminStudentListItem[]>([]);
+  const [allocations, setAllocations] = useState<AdminCourseAllocationSummary[]>([]);
+  const [loaded, setLoaded] = useState(false);
+  const [value, setValue] = useState({ student: "", allocation: "" });
   const [error, setError] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  const [submitting, setSubmitting] = useState(false);
 
-  const eligibleAllocations = eligibleAllocationsForEnrollment();
+  useEffect(() => {
+    let cancelled = false;
+    Promise.all([
+      cached("admin:all-students", () => apiGetAllPages<AdminStudentListItem>("/admin/students/")),
+      apiGetAllPages<AdminCourseAllocationSummary>("/admin/allocations/?status=Ongoing"),
+    ])
+      .then(([studentsRes, allocationsRes]) => {
+        if (cancelled) return;
+        setStudents(studentsRes);
+        setAllocations(allocationsRes);
+        setLoaded(true);
+      })
+      .catch((err: unknown) => {
+        if (err instanceof ApiError && err.status === 401) navigate("/login", { replace: true });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [navigate]);
 
-  function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    const result = createEnrollment(value);
-    if (typeof result === "string") {
-      setError(result);
-      return;
+    setError(null);
+    setFieldErrors({});
+    setSubmitting(true);
+    try {
+      const record = await apiMutate<AdminEnrollmentSummary>("/admin/enrollments/", "POST", {
+        student: value.student,
+        allocation: Number(value.allocation),
+      });
+      invalidateCache("admin:enrollments");
+      navigate(`/admin/enrollments/${record.enrollment_id}`);
+    } catch (err) {
+      const { banner, fields } = apiFormErrors(err);
+      setError(banner);
+      setFieldErrors(fields);
+    } finally {
+      setSubmitting(false);
     }
-    navigate(`/admin/enrollments/${result.enrollment_id}`);
   }
 
   return (
-    <DashboardShell
-      railItems={RAIL_ITEMS}
-      activeRailId="enrollments"
-      homeHref="/admin/dashboard"
-      avatarInitials={avatarInitials}
-      pageTitle="New enrollment"
-      sessionLabel={mockCurrentSession}
-      subtitle={admin.institutional_email}
-      profileHref="/admin/profile"
-    >
+    <>
       <Breadcrumbs
         items={[
           { label: "Dashboard", href: "/admin/dashboard" },
@@ -92,7 +80,9 @@ export function EnrollmentCreatePage() {
 
         {error && <div className={formStyles.errorBanner}>{error}</div>}
 
-        {eligibleAllocations.length === 0 ? (
+        {!loaded ? (
+          <p className={formStyles.hint}>Loading…</p>
+        ) : allocations.length === 0 ? (
           <p className={formStyles.hint}>
             No allocation is currently "Ongoing" — an allocation needs to move past "Inactive"
             before a student can enroll in it.
@@ -100,18 +90,19 @@ export function EnrollmentCreatePage() {
         ) : (
           <>
             <div className={formStyles.row}>
-              <div className={formStyles.field}>
+              <div className={formStyles.field} data-invalid={fieldErrors.student ? "true" : undefined}>
                 <label htmlFor="student">Student</label>
                 <select id="student" value={value.student} onChange={(e) => setValue({ ...value, student: e.target.value })} required>
                   <option value="">Select student…</option>
-                  {mockStudentDirectory.map((s) => (
+                  {students.map((s) => (
                     <option key={s.person.person_id} value={s.person.person_id}>
                       {s.person.person_id} — {s.person.first_name} {s.person.last_name}
                     </option>
                   ))}
                 </select>
+                {fieldErrors.student && <span className={formStyles.fieldError}>{fieldErrors.student}</span>}
               </div>
-              <div className={formStyles.field}>
+              <div className={formStyles.field} data-invalid={fieldErrors.allocation ? "true" : undefined}>
                 <label htmlFor="allocation">Allocation</label>
                 <select
                   id="allocation"
@@ -120,21 +111,19 @@ export function EnrollmentCreatePage() {
                   required
                 >
                   <option value="">Select allocation…</option>
-                  {eligibleAllocations.map((a) => {
-                    const semester = semesterRefById(a.semester);
-                    return (
-                      <option key={a.allocation_id} value={a.allocation_id}>
-                        {a.course} · {a.faculty} · {semester ? semester.classLabel : `Semester #${a.semester}`} · {a.session}
-                      </option>
-                    );
-                  })}
+                  {allocations.map((a) => (
+                    <option key={a.allocation_id} value={a.allocation_id}>
+                      {a.course} · {a.faculty} · Semester #{a.semester} · {a.session}
+                    </option>
+                  ))}
                 </select>
+                {fieldErrors.allocation && <span className={formStyles.fieldError}>{fieldErrors.allocation}</span>}
               </div>
             </div>
 
             <div className={formStyles.actions}>
-              <button type="submit" className={formStyles.primaryButton}>
-                Create enrollment
+              <button type="submit" className={formStyles.primaryButton} disabled={submitting}>
+                {submitting ? "Creating…" : "Create enrollment"}
               </button>
               <Link to="/admin/enrollments" className={formStyles.secondaryButton}>
                 Cancel
@@ -143,6 +132,6 @@ export function EnrollmentCreatePage() {
           </>
         )}
       </form>
-    </DashboardShell>
+    </>
   );
 }

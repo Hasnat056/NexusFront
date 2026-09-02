@@ -227,18 +227,122 @@
   color: var(--color-login-muted);
 }
 
+.field[data-invalid="true"] input {
+  border-color: var(--color-critical);
+}
+
+.field[data-invalid="true"] input:focus-visible {
+  border-color: var(--color-critical);
+  box-shadow: 0 0 0 3px var(--color-critical-soft);
+}
+
+.fieldError {
+  display: block;
+  font-size: 0.72rem;
+  color: var(--color-critical);
+  margin-top: 0.4rem;
+}
+
+.passwordRow {
+  position: relative;
+}
+
+.passwordRow input {
+  padding-right: 2.6rem;
+}
+
+.passwordToggle {
+  position: absolute;
+  top: 50%;
+  right: 0.5rem;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.9rem;
+  height: 1.9rem;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--color-login-muted);
+  cursor: pointer;
+}
+
+.passwordToggle svg {
+  width: 18px;
+  height: 18px;
+}
+
+.passwordToggle:hover {
+  color: var(--color-login-ink);
+}
+
+.passwordToggle:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--color-accent-soft);
+}
+
 .meta {
   display: flex;
+  align-items: center;
   justify-content: space-between;
   font-size: 0.78rem;
   margin: -0.3rem 0 1.4rem;
   color: var(--color-login-muted);
 }
 
-.meta a {
+.sessionPill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.76rem;
+  font-weight: 600;
+  color: var(--color-login-muted);
+  background: var(--color-surface-sunken);
+  padding: 0.32rem 0.7rem;
+  border-radius: 20px;
+}
+
+.dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--color-good);
+  animation: pulse 2.4s ease-out infinite;
+}
+
+@keyframes pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(63, 138, 92, 0.5);
+  }
+  70% {
+    box-shadow: 0 0 0 6px rgba(63, 138, 92, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(63, 138, 92, 0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dot {
+    animation: none;
+  }
+}
+
+.metaLink {
   color: var(--color-accent);
   text-decoration: none;
   font-weight: 600;
+}
+
+.metaLink:hover {
+  text-decoration: underline;
+}
+
+.backRow {
+  justify-content: center;
+  margin-top: 1rem;
 }
 
 .submit {
@@ -264,4 +368,14 @@
   font-size: 0.78rem;
   color: var(--color-critical);
   margin: -0.6rem 0 1.1rem;
+}
+
+.notice {
+  font-size: 0.82rem;
+  color: var(--color-login-ink);
+  background: var(--color-accent-glow);
+  border: 1px solid var(--color-accent-soft);
+  border-radius: var(--radius-md);
+  padding: 0.75rem 0.9rem;
+  margin: 0 0 1.4rem;
 }

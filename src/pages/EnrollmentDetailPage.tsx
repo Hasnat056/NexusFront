@@ -1,82 +1,117 @@
-import { useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
-import { DashboardShell } from "../components/layout/DashboardShell";
-import type { RailNavItem } from "../components/layout/Rail";
-import {
-  IconScroll,
-  IconHourglass,
-  IconInbox,
-  IconBars,
-  IconBook,
-  IconBuilding,
-  IconCalendar,
-  IconClipboard,
-  IconGraduationCap,
-  IconLayers,
-  IconGrid,
-  IconPeople,
-  IconPerson,
-  IconUserCheck,
-} from "../components/icons/Icons";
+import { useEffect, useState } from "react";
+import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
+import { useAdminPageConfig } from "../components/layout/AdminShellContext";
 import { Breadcrumbs } from "../components/ui/Breadcrumbs";
 import { Tag } from "../components/ui/Tag";
-import { getAllocationById, semesterRefById } from "../data/allocationDirectory";
-import {
-  ENROLLMENT_STATUS_TONE,
-  deleteEnrollment,
-  getEnrollmentById,
-  isEnrollmentDeletable,
-  isEnrollmentEditable,
-  updateEnrollmentStatus,
-} from "../data/enrollmentDirectory";
-import { mockAdminDashboardResponse } from "../data/adminDashboard";
-import { mockCurrentSession } from "../data/session";
-import type { EnrollmentStatus } from "../types/api";
+import { useToast } from "../components/ui/ToastContext";
+import { apiGet, apiMutate, invalidateCache } from "../lib/auth";
+import { ApiError, apiErrorMessage, apiFormErrors } from "../lib/api";
+import type { AdminCourseAllocationSummary, AdminEnrollmentSummary, EnrollmentStatus } from "../types/api";
+import type { StatusTone } from "../types/dashboard";
 import formStyles from "../components/ui/Form.module.css";
 import styles from "./PersonDetailPage.module.css";
 
-const RAIL_ITEMS: RailNavItem[] = [
-  { id: "dashboard", label: "Dashboard", icon: IconGrid, href: "/admin/dashboard" },
-  { id: "faculty", label: "Faculty", icon: IconPerson, href: "/admin/faculty" },
-  { id: "students", label: "Students", icon: IconPeople, href: "/admin/students" },
-  { id: "departments", label: "Departments", icon: IconBuilding, href: "/admin/departments" },
-  { id: "programs", label: "Programs", icon: IconLayers, href: "/admin/programs" },
-  { id: "courses", label: "Courses", icon: IconBook, href: "/admin/courses" },
-  { id: "classes", label: "Classes", icon: IconGraduationCap, href: "/admin/classes" },
-  { id: "allocations", label: "Allocations", icon: IconClipboard, href: "/admin/allocations" },
-  { id: "enrollments", label: "Enrollments", icon: IconUserCheck, href: "/admin/enrollments" },
-  { id: "sessions", label: "Sessions", icon: IconCalendar, href: "/admin/sessions" },
-  { id: "semesters", label: "Semesters", icon: IconHourglass, href: "/admin/semesters" },
-  { id: "transcripts", label: "Transcripts", icon: IconScroll, href: "/admin/transcripts" },
-  { id: "requests", label: "Requests", icon: IconInbox, href: "/admin/requests" },
-  { id: "reports", label: "Reports", icon: IconBars },
-];
-
 const STATUS_OPTIONS: EnrollmentStatus[] = ["Inactive", "Active", "Completed", "Dropped"];
+const ENROLLMENT_STATUS_TONE: Record<EnrollmentStatus, StatusTone> = {
+  Inactive: "warning",
+  Active: "good",
+  Completed: "critical",
+  Dropped: "critical",
+};
 
 export function EnrollmentDetailPage() {
   const { enrollmentId } = useParams<{ enrollmentId: string }>();
   const navigate = useNavigate();
-  const record = enrollmentId ? getEnrollmentById(Number(enrollmentId)) : undefined;
-  const admin = mockAdminDashboardResponse.admin;
-  const avatarInitials = `${admin.first_name[0]}${admin.last_name[0]}`.toUpperCase();
+  const location = useLocation();
+  const { showToast } = useToast();
+  const viewPath = `/admin/enrollments/${enrollmentId}`;
+  const editing = location.pathname.endsWith("/edit");
+  useAdminPageConfig(editing ? "Edit enrollment" : "Enrollment");
+  const [record, setRecord] = useState<AdminEnrollmentSummary | null>(null);
+  const [allocation, setAllocation] = useState<AdminCourseAllocationSummary | null>(null);
+  const [notFound, setNotFound] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [refreshKey, setRefreshKey] = useState(0);
 
-  const [statusInput, setStatusInput] = useState<EnrollmentStatus>(record?.status ?? "Inactive");
-  const [message, setMessage] = useState<string | null>(null);
+  const [status, setStatus] = useState<EnrollmentStatus>("Inactive");
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [confirmingDelete, setConfirmingDelete] = useState(false);
 
-  if (!record) {
+  useEffect(() => {
+    if (!enrollmentId) return;
+    let cancelled = false;
+    apiGet<AdminEnrollmentSummary>(`/admin/enrollments/${enrollmentId}/`)
+      .then((recordRes) => {
+        if (cancelled) return;
+        setRecord(recordRes);
+        return apiGet<AdminCourseAllocationSummary>(`/admin/allocations/${recordRes.allocation}/`).then((allocationRes) => {
+          if (!cancelled) setAllocation(allocationRes);
+        });
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        if (err instanceof ApiError && err.status === 404) {
+          setNotFound(true);
+          return;
+        }
+        if (err instanceof ApiError && err.status === 401) {
+          navigate("/login", { replace: true });
+          return;
+        }
+        setLoadError(apiErrorMessage(err));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [enrollmentId, navigate, refreshKey]);
+
+  useEffect(() => {
+    if (editing && record) {
+      setStatus(record.status);
+      setActionError(null);
+      setFieldErrors({});
+    }
+  }, [editing, record]);
+
+  async function handleSave(e: React.FormEvent) {
+    e.preventDefault();
+    if (!enrollmentId) return;
+    setActionError(null);
+    setFieldErrors({});
+    try {
+      await apiMutate<AdminEnrollmentSummary>(`/admin/enrollments/${enrollmentId}/`, "PATCH", { status });
+      invalidateCache("admin:enrollments");
+      navigate(viewPath);
+      showToast("Enrollment updated.");
+      setRefreshKey((k) => k + 1);
+    } catch (err) {
+      const { banner, fields } = apiFormErrors(err);
+      setActionError(banner);
+      setFieldErrors(fields);
+    }
+  }
+
+  async function handleDelete() {
+    if (!confirmingDelete) {
+      setConfirmingDelete(true);
+      return;
+    }
+    if (!enrollmentId) return;
+    setActionError(null);
+    try {
+      await apiMutate(`/admin/enrollments/${enrollmentId}/`, "DELETE");
+      invalidateCache("admin:enrollments");
+      navigate("/admin/enrollments");
+    } catch (err) {
+      setActionError(apiErrorMessage(err));
+      setConfirmingDelete(false);
+    }
+  }
+
+  if (notFound) {
     return (
-      <DashboardShell
-        railItems={RAIL_ITEMS}
-        activeRailId="enrollments"
-        homeHref="/admin/dashboard"
-        avatarInitials={avatarInitials}
-        pageTitle="Enrollment"
-        sessionLabel={mockCurrentSession}
-        subtitle={admin.institutional_email}
-        profileHref="/admin/profile"
-      >
+      <>
         <Breadcrumbs
           items={[
             { label: "Dashboard", href: "/admin/dashboard" },
@@ -85,126 +120,122 @@ export function EnrollmentDetailPage() {
           ]}
         />
         <p className={styles.notFound}>Enrollment {enrollmentId} was not found.</p>
-      </DashboardShell>
+      </>
     );
   }
 
-  const allocation = getAllocationById(record.allocation);
-  const semester = allocation ? semesterRefById(allocation.semester) : undefined;
-  const editable = isEnrollmentEditable(record);
-  const deletable = isEnrollmentDeletable(record);
-
-  function handleSetStatus(e: React.FormEvent) {
-    e.preventDefault();
-    updateEnrollmentStatus(record!.enrollment_id, statusInput);
-    setMessage("Enrollment updated.");
+  if (loadError) {
+    return <div className={formStyles.errorBanner}>{loadError}</div>;
   }
 
-  function handleDelete() {
-    if (!confirmingDelete) {
-      setConfirmingDelete(true);
-      return;
-    }
-    deleteEnrollment(record!.enrollment_id);
-    navigate("/admin/enrollments");
+  if (!record) {
+    return <p className={styles.empty}>Loading enrollment…</p>;
   }
+
+  const deletable = record.status !== "Completed" && !record.result?.course_gpa;
 
   return (
-    <DashboardShell
-      railItems={RAIL_ITEMS}
-      activeRailId="enrollments"
-      homeHref="/admin/dashboard"
-      avatarInitials={avatarInitials}
-      pageTitle="Enrollment"
-      sessionLabel={mockCurrentSession}
-      subtitle={admin.institutional_email}
-      profileHref="/admin/profile"
-    >
+    <>
       <Breadcrumbs
-        items={[
-          { label: "Dashboard", href: "/admin/dashboard" },
-          { label: "Enrollments", href: "/admin/enrollments" },
-          { label: record.student_info?.student_name ?? record.student },
-        ]}
+        items={
+          editing
+            ? [
+                { label: "Dashboard", href: "/admin/dashboard" },
+                { label: "Enrollments", href: "/admin/enrollments" },
+                { label: `#${record.enrollment_id}`, href: viewPath },
+                { label: "Edit" },
+              ]
+            : [
+                { label: "Dashboard", href: "/admin/dashboard" },
+                { label: "Enrollments", href: "/admin/enrollments" },
+                { label: `#${record.enrollment_id}` },
+              ]
+        }
       />
 
-      {message && <div className={formStyles.banner}>{message}</div>}
+      {actionError && <div className={formStyles.errorBanner}>{actionError}</div>}
 
-      <div className={styles.profileCard}>
-        <div className={styles.profileMain}>
-          <h1 className={styles.name}>{record.student_info?.student_name ?? record.student}</h1>
-          <p className={styles.subline}>
-            Enrollment #{record.enrollment_id} · {record.student} · enrolled {record.enrollment_date}
-          </p>
-          <p className={styles.subline}>
-            {allocation ? `${allocation.course} · ${allocation.faculty} · ${allocation.session}` : `Allocation #${record.allocation}`}
-            {semester && ` · ${semester.classLabel} · Semester ${semester.semesterNo}`}
-          </p>
-        </div>
-        <div className={formStyles.actions}>
-          <Tag tone={ENROLLMENT_STATUS_TONE[record.status]}>{record.status}</Tag>
-          <button type="button" className={formStyles.dangerButton} onClick={handleDelete} disabled={!deletable}>
-            {confirmingDelete ? "Confirm delete" : "Delete"}
-          </button>
-          {confirmingDelete && (
-            <button type="button" className={formStyles.secondaryButton} onClick={() => setConfirmingDelete(false)}>
-              Cancel
-            </button>
-          )}
-        </div>
-      </div>
-
-      {record.result && (
-        <div className={styles.editCard}>
-          <h3 className={formStyles.sectionTitle}>Result</h3>
-          <dl className={styles.fields}>
-            <dt>Obtained marks</dt>
-            <dd>{record.result.obtained_marks}</dd>
-            <dt>Course GPA</dt>
-            <dd>{record.result.course_gpa}</dd>
-          </dl>
-        </div>
-      )}
-
-      <div className={styles.editCard}>
-        <h3 className={formStyles.sectionTitle}>Status</h3>
-        <form className={formStyles.row} onSubmit={handleSetStatus}>
-          <div className={formStyles.field}>
-            <label htmlFor="status">Status</label>
-            <select
-              id="status"
-              value={statusInput}
-              onChange={(e) => setStatusInput(e.target.value as EnrollmentStatus)}
-              disabled={!editable}
-            >
-              {STATUS_OPTIONS.map((s) => (
-                <option key={s} value={s}>
-                  {s}
-                </option>
-              ))}
-            </select>
+      {editing ? (
+        <form className={styles.editCard} onSubmit={handleSave}>
+          <h3 className={formStyles.sectionTitle}>Enrollment</h3>
+          <div className={formStyles.row}>
+            <div className={formStyles.field} data-invalid={fieldErrors.status ? "true" : undefined}>
+              <label htmlFor="status">Status</label>
+              <select id="status" value={status} onChange={(e) => setStatus(e.target.value as EnrollmentStatus)}>
+                {STATUS_OPTIONS.map((s) => (
+                  <option key={s} value={s}>
+                    {s}
+                  </option>
+                ))}
+              </select>
+              {fieldErrors.status && <span className={formStyles.fieldError}>{fieldErrors.status}</span>}
+            </div>
           </div>
-          <div className={formStyles.field}>
-            <label>&nbsp;</label>
-            <button type="submit" className={formStyles.primaryButton} disabled={!editable}>
-              Save status
+          <span className={formStyles.hint}>
+            Student and allocation aren't editable after creation — only status moves here.
+          </span>
+          <div className={formStyles.actions}>
+            <button type="submit" className={formStyles.primaryButton}>
+              Save changes
+            </button>
+            <button type="button" className={formStyles.secondaryButton} onClick={() => navigate(viewPath)}>
+              Cancel
             </button>
           </div>
         </form>
-        <span className={formStyles.hint}>
-          {editable
-            ? "AdminEnrollmentPermissions allows Admin to change status while it's Active/Inactive/Dropped."
-            : "Locked — once status is Completed, AdminEnrollmentPermissions makes this record read-only for Admin."}
-        </span>
-      </div>
+      ) : (
+        <div className={styles.profileCard}>
+          <div className={styles.profileMain}>
+            <h1 className={styles.name}>{record.student_info?.student_name ?? record.student}</h1>
+            <p className={styles.subline}>
+              Enrollment #{record.enrollment_id} · {allocation ? `${allocation.course} · ${allocation.faculty}` : `Allocation #${record.allocation}`}{" "}
+              · Enrolled {record.enrollment_date}
+            </p>
+          </div>
+          <div className={formStyles.actions}>
+            <Tag tone={ENROLLMENT_STATUS_TONE[record.status]}>{record.status}</Tag>
+            {record.status === "Completed" ? (
+              <button type="button" className={formStyles.secondaryButton} disabled>
+                Edit
+              </button>
+            ) : (
+              <Link to={`${viewPath}/edit`} className={formStyles.secondaryButton}>
+                Edit
+              </Link>
+            )}
+            <button type="button" className={formStyles.dangerButton} onClick={handleDelete} disabled={!deletable}>
+              {confirmingDelete ? "Confirm delete" : "Delete"}
+            </button>
+            {confirmingDelete && (
+              <button type="button" className={formStyles.secondaryButton} onClick={() => setConfirmingDelete(false)}>
+                Cancel
+              </button>
+            )}
+          </div>
+        </div>
+      )}
 
-      {!deletable && editable && (
+      {record.result && (
+        <div className={styles.profileCard}>
+          <h3 className={formStyles.sectionTitle}>Result</h3>
+          <p className={styles.subline}>
+            Obtained marks {record.result.obtained_marks ?? "—"} · Course GPA {record.result.course_gpa ?? "—"}
+          </p>
+        </div>
+      )}
+
+      {!editing && record.status === "Completed" && (
         <p className={formStyles.hint}>
-          Delete is locked — a Result with a course GPA already exists for this enrollment
-          (EnrollmentRetrieveUpdateDestroyAPIView.perform_destroy raises PermissionDenied once
-          result.course_gpa is set).
+          Locked — once an enrollment is Completed the permission layer only allows GET on this
+          record.
         </p>
       )}
-    </DashboardShell>
+      {!editing && record.status !== "Completed" && !deletable && (
+        <p className={formStyles.hint}>
+          Deletion is blocked once this enrollment's Result has a course GPA set
+          (EnrollmentRetrieveUpdateDestroyAPIView.perform_destroy).
+        </p>
+      )}
+    </>
   );
 }

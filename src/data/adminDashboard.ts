@@ -62,8 +62,8 @@ export const mockAdminDashboardResponse: AdminDashboardResponse = {
     { year: 2026, count: 4910 },
   ],
   yearly_admission: [
-    { "program_id__department_id__department_name": "Computer Science", year: 2026, count: 210 },
-    { "program_id__department_id__department_name": "Electrical Engineering", year: 2026, count: 128 },
+    { "program__department__department_name": "Computer Science", year: 2026, count: 210 },
+    { "program__department__department_name": "Electrical Engineering", year: 2026, count: 128 },
   ],
 };
 

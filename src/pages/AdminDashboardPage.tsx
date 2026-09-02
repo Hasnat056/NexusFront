@@ -1,43 +1,26 @@
-import { useState } from "react";
-import { DashboardShell } from "../components/layout/DashboardShell";
-import type { RailNavItem } from "../components/layout/Rail";
-import { IconScroll, IconHourglass, IconInbox, IconBars, IconBook, IconBuilding, IconCalendar, IconClipboard, IconGraduationCap, IconLayers, IconGrid, IconPeople, IconPerson, IconUserCheck } from "../components/icons/Icons";
+import { useEffect, useMemo, useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
+import { useAdminPageConfig } from "../components/layout/AdminShellContext";
 import { StatTile } from "../components/ui/StatTile";
 import { Panel } from "../components/ui/Panel";
 import { Table, type Column } from "../components/ui/Table";
-import { ChangeRequestsPanel } from "../components/ui/ChangeRequestsPanel";
+import { NotificationsPanel } from "../components/ui/NotificationsPanel";
 import { EnrollmentTrendChart } from "../components/charts/EnrollmentTrendChart";
 import { PieChart } from "../components/charts/PieChart";
 import {
-  mockAdminDashboardResponse,
   selectDepartmentRows,
   selectEnrollmentStatusSlices,
   selectEnrollmentTrend,
   selectStatMetrics,
 } from "../data/adminDashboard";
-import { mockChangeRequests, selectChangeRequestListItems } from "../data/changeRequests";
-import { mockCurrentSession } from "../data/session";
+import { useNotifications } from "../hooks/useNotifications";
 import type { DepartmentRow } from "../types/dashboard";
-import { Link } from "react-router-dom";
+import type { AdminDashboardResponse } from "../types/api";
+import { apiGet } from "../lib/auth";
+import { ApiError, apiErrorMessage } from "../lib/api";
+import formStyles from "../components/ui/Form.module.css";
 import listStyles from "./FacultyListPage.module.css";
 import styles from "./AdminDashboardPage.module.css";
-
-const RAIL_ITEMS: RailNavItem[] = [
-  { id: "dashboard", label: "Dashboard", icon: IconGrid, href: "/admin/dashboard" },
-  { id: "faculty", label: "Faculty", icon: IconPerson, href: "/admin/faculty" },
-  { id: "students", label: "Students", icon: IconPeople, href: "/admin/students" },
-  { id: "departments", label: "Departments", icon: IconBuilding, href: "/admin/departments" },
-  { id: "programs", label: "Programs", icon: IconLayers, href: "/admin/programs" },
-  { id: "courses", label: "Courses", icon: IconBook, href: "/admin/courses" },
-  { id: "classes", label: "Classes", icon: IconGraduationCap, href: "/admin/classes" },
-  { id: "allocations", label: "Allocations", icon: IconClipboard, href: "/admin/allocations" },
-  { id: "enrollments", label: "Enrollments", icon: IconUserCheck, href: "/admin/enrollments" },
-  { id: "sessions", label: "Sessions", icon: IconCalendar, href: "/admin/sessions" },
-  { id: "semesters", label: "Semesters", icon: IconHourglass, href: "/admin/semesters" },
-  { id: "transcripts", label: "Transcripts", icon: IconScroll, href: "/admin/transcripts" },
-  { id: "requests", label: "Requests", icon: IconInbox, href: "/admin/requests" },
-  { id: "reports", label: "Reports", icon: IconBars },
-];
 
 const departmentColumns: Column<DepartmentRow>[] = [
   {
@@ -55,59 +38,84 @@ const departmentColumns: Column<DepartmentRow>[] = [
 ];
 
 export function AdminDashboardPage() {
-  const data = mockAdminDashboardResponse;
-  const statMetrics = selectStatMetrics(data);
-  const departmentRows = selectDepartmentRows(data);
-  const enrollmentTrend = selectEnrollmentTrend(data);
-  const enrollmentStatusSlices = selectEnrollmentStatusSlices(data);
-  const changeRequestItems = selectChangeRequestListItems(
-    mockChangeRequests.filter((cr) => cr.status === "pending" || cr.status === "confirmed"),
+  const navigate = useNavigate();
+  const [data, setData] = useState<AdminDashboardResponse | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const notifications = useNotifications();
+
+  useEffect(() => {
+    let cancelled = false;
+    apiGet<AdminDashboardResponse>("/admin/dashboard/")
+      .then((res) => {
+        if (!cancelled) setData(res);
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        if (err instanceof ApiError && err.status === 401) {
+          navigate("/login", { replace: true });
+          return;
+        }
+        setError(apiErrorMessage(err));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [navigate]);
+
+  const sidePanel = useMemo(
+    () => (
+      <NotificationsPanel
+        items={notifications.items}
+        unreadCount={notifications.unreadCount}
+        open={notificationsOpen}
+        onClose={() => setNotificationsOpen(false)}
+        onOpen={() => setNotificationsOpen(true)}
+        onMarkRead={notifications.markRead}
+        onMarkAllRead={notifications.markAllRead}
+        onDismiss={notifications.dismiss}
+      />
+    ),
+    [notifications, notificationsOpen],
   );
-  const avatarInitials = `${data.admin.first_name[0]}${data.admin.last_name[0]}`.toUpperCase();
-  const [changeRequestsOpen, setChangeRequestsOpen] = useState(true);
+
+  useAdminPageConfig("Admin dashboard", sidePanel);
 
   return (
-    <DashboardShell
-      railItems={RAIL_ITEMS}
-      activeRailId="dashboard"
-      homeHref="/admin/dashboard"
-      avatarInitials={avatarInitials}
-      pageTitle="Admin dashboard"
-      sessionLabel={mockCurrentSession}
-      subtitle={data.admin.institutional_email}
-      profileHref="/admin/profile"
-      sidePanel={
-        <ChangeRequestsPanel
-          items={changeRequestItems}
-          open={changeRequestsOpen}
-          onClose={() => setChangeRequestsOpen(false)}
-          onOpen={() => setChangeRequestsOpen(true)}
-        />
-      }
-    >
-      <div className={styles.statGrid}>
-        {statMetrics.map((metric) => (
-          <StatTile key={metric.id} {...metric} />
-        ))}
-      </div>
+    <>
+      {error && <div className={formStyles.errorBanner}>{error}</div>}
+      {!error && !data && <p className={styles.contentLoading}>Loading dashboard…</p>}
+      {!error && data && (
+        <>
+          <div className={styles.statGrid}>
+            {selectStatMetrics(data).map((metric) => (
+              <StatTile key={metric.id} {...metric} />
+            ))}
+          </div>
 
-      <Panel title="Departments" hint={`${departmentRows.length} departments`}>
-        <Table columns={departmentColumns} rows={departmentRows} rowKey={(row) => row.departmentId} />
-      </Panel>
+          <Panel title="Departments" hint={`${selectDepartmentRows(data).length} departments`}>
+            <Table columns={departmentColumns} rows={selectDepartmentRows(data)} rowKey={(row) => row.departmentId} />
+          </Panel>
 
-      <div className={styles.chartsRow}>
-        <Panel title="Enrollment trend" hint="By year">
-          <EnrollmentTrendChart
-            data={enrollmentTrend}
-            formatValue={(v) => v.toLocaleString("en-US")}
-            axisLabels={enrollmentTrend.map((point, i) => ({ atIndex: i, label: point.label }))}
-          />
-        </Panel>
+          <div className={styles.chartsRow}>
+            <Panel title="Enrollment trend" hint="By year">
+              <EnrollmentTrendChart
+                data={selectEnrollmentTrend(data)}
+                formatValue={(v) => v.toLocaleString("en-US")}
+                axisLabels={selectEnrollmentTrend(data).map((point, i) => ({ atIndex: i, label: point.label }))}
+              />
+            </Panel>
 
-        <Panel title="Enrollments by status" hint={`${data.enrollment_total.toLocaleString("en-US")} total`}>
-          <PieChart data={enrollmentStatusSlices} formatValue={(v) => v.toLocaleString("en-US")} />
-        </Panel>
-      </div>
-    </DashboardShell>
+            <Panel title="Enrollments by status" hint={`${data.enrollment_total.toLocaleString("en-US")} total`}>
+              <PieChart
+                data={selectEnrollmentStatusSlices(data)}
+                formatValue={(v) => v.toLocaleString("en-US")}
+                emptyMessage="No enrollment data yet."
+              />
+            </Panel>
+          </div>
+        </>
+      )}
+    </>
   );
 }

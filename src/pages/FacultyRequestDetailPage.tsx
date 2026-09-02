@@ -1,22 +1,17 @@
-import { useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { DashboardShell } from "../components/layout/DashboardShell";
-import type { RailNavItem } from "../components/layout/Rail";
-import { IconBook, IconGrid, IconPerson } from "../components/icons/Icons";
+import { FACULTY_RAIL_ITEMS } from "../components/layout/facultyRailItems";
 import { Breadcrumbs } from "../components/ui/Breadcrumbs";
 import { Tag } from "../components/ui/Tag";
+import { useToast } from "../components/ui/ToastContext";
 import { CHANGE_REQUEST_STATUS_LABEL, CHANGE_REQUEST_STATUS_TONE } from "../data/changeRequests";
-import { facultyRequestHeadline, getFacultyRequestByKey, markRequestApplied } from "../data/facultyRequests";
-import { applyResultCalculation, countUngradedForAllocation } from "../data/facultyAllocationDetail";
-import { mockFacultyDashboardResponse } from "../data/facultyDashboard";
+import { extractIdFromUrl, facultyRequestHeadline } from "../data/facultyRequests";
+import { apiGet, apiGetAllPages, apiMutate } from "../lib/auth";
+import { ApiError, apiErrorMessage } from "../lib/api";
+import type { FacultyChangeRequest, FacultyDashboardResponse } from "../types/api";
 import formStyles from "../components/ui/Form.module.css";
 import styles from "./ChangeRequestDetailPage.module.css";
-
-const RAIL_ITEMS: RailNavItem[] = [
-  { id: "dashboard", label: "Dashboard", icon: IconGrid, href: "/faculty/dashboard" },
-  { id: "allocations", label: "Allocations", icon: IconBook, href: "/faculty/allocations" },
-  { id: "profile", label: "Profile", icon: IconPerson, href: "/faculty/profile" },
-];
 
 function formatDateTime(iso: string | null): string {
   if (!iso) return "—";
@@ -24,64 +19,117 @@ function formatDateTime(iso: string | null): string {
 }
 
 export function FacultyRequestDetailPage() {
+  const navigate = useNavigate();
   const { id } = useParams<{ id: string }>();
-  const [, setTick] = useState(0);
+  const { showToast } = useToast();
+
+  const [dashboard, setDashboard] = useState<FacultyDashboardResponse | null>(null);
+  const [request, setRequest] = useState<FacultyChangeRequest | null>(null);
+  const [notFound, setNotFound] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [refreshKey, setRefreshKey] = useState(0);
+
   const [error, setError] = useState<string | null>(null);
-  const [message, setMessage] = useState<string | null>(null);
+  const [applying, setApplying] = useState(false);
 
-  const dashboard = mockFacultyDashboardResponse;
-  const avatarInitials = `${dashboard.faculty.first_name[0]}${dashboard.faculty.last_name[0]}`.toUpperCase();
+  useEffect(() => {
+    let cancelled = false;
+    // FacultyRequestsUpdateView only supports PUT/PATCH, no retrieve-by-id — the list
+    // (GET /api/faculty/requests/) is the only way to fetch a single request's current state.
+    Promise.all([
+      apiGet<FacultyDashboardResponse>("/faculty/dashboard/"),
+      apiGetAllPages<FacultyChangeRequest>("/faculty/requests/"),
+    ])
+      .then(([dashboardRes, requestsRes]) => {
+        if (cancelled) return;
+        setDashboard(dashboardRes);
+        const found = requestsRes.find((r) => extractIdFromUrl(r.urls) === id);
+        if (!found) {
+          setNotFound(true);
+          return;
+        }
+        setRequest(found);
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        if (err instanceof ApiError && err.status === 401) {
+          navigate("/login", { replace: true });
+          return;
+        }
+        setLoadError(apiErrorMessage(err));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [navigate, id, refreshKey]);
 
-  const request = id ? getFacultyRequestByKey(id) : undefined;
+  const avatarInitials = dashboard ? `${dashboard.faculty.first_name[0]}${dashboard.faculty.last_name[0]}`.toUpperCase() : "—";
 
-  if (!request) {
+  if (loadError) {
+    return (
+      <DashboardShell railItems={FACULTY_RAIL_ITEMS} activeRailId="requests" homeHref="/faculty/dashboard" profileHref="/faculty/profile" avatarInitials={avatarInitials} pageTitle="Request" subtitle="">
+        <div className={formStyles.errorBanner}>{loadError}</div>
+      </DashboardShell>
+    );
+  }
+
+  if (notFound) {
     return (
       <DashboardShell
-        railItems={RAIL_ITEMS}
-        activeRailId="dashboard"
+        railItems={FACULTY_RAIL_ITEMS}
+        activeRailId="requests"
         homeHref="/faculty/dashboard"
+        profileHref="/faculty/profile"
         avatarInitials={avatarInitials}
         pageTitle="Request"
-        subtitle={dashboard.faculty.institutional_email}
+        subtitle={dashboard?.faculty.institutional_email ?? ""}
       >
-        <Breadcrumbs items={[{ label: "Dashboard", href: "/faculty/dashboard" }, { label: id ?? "Not found" }]} />
+        <Breadcrumbs items={[{ label: "Dashboard", href: "/faculty/dashboard" }, { label: "Requests", href: "/faculty/requests" }, { label: id ?? "Not found" }]} />
         <p className={styles.notFound}>Request {id} was not found.</p>
+      </DashboardShell>
+    );
+  }
+
+  if (!dashboard || !request) {
+    return (
+      <DashboardShell railItems={FACULTY_RAIL_ITEMS} activeRailId="requests" homeHref="/faculty/dashboard" profileHref="/faculty/profile" avatarInitials={avatarInitials} pageTitle="Request" subtitle="">
+        <p className={styles.notFound}>Loading request…</p>
       </DashboardShell>
     );
   }
 
   const applicable = request.status === "confirmed" && request.target_allocation !== null;
 
-  function handleApply() {
-    if (request!.target_allocation === null) return;
-    const ungraded = countUngradedForAllocation(request!.target_allocation);
-    if (ungraded > 0) {
-      setError(`${ungraded} assessment mark(s) are still ungraded — grade every student before applying result calculation.`);
-      setMessage(null);
-      return;
-    }
-    const result = applyResultCalculation(request!.target_allocation);
-    if (typeof result === "string") {
-      setError(result);
-      setMessage(null);
-      return;
-    }
-    markRequestApplied(request!.urls);
+  async function handleApply() {
+    setApplying(true);
     setError(null);
-    setMessage("Results calculated — allocation marked Completed.");
-    setTick((t) => t + 1);
+    try {
+      await apiMutate<FacultyChangeRequest>(`/faculty/requests/${id}/`, "PUT", { status: "applied" });
+      showToast("Results calculated — allocation marked Completed.");
+      setRefreshKey((k) => k + 1);
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 401) {
+        navigate("/login", { replace: true });
+        return;
+      }
+      setError(apiErrorMessage(err));
+    } finally {
+      setApplying(false);
+    }
   }
 
   return (
     <DashboardShell
-      railItems={RAIL_ITEMS}
-      activeRailId="dashboard"
+      railItems={FACULTY_RAIL_ITEMS}
+      activeRailId="requests"
       homeHref="/faculty/dashboard"
+      profileHref="/faculty/profile"
       avatarInitials={avatarInitials}
+      avatarSrc={dashboard.faculty.image}
       pageTitle="Request"
       subtitle={dashboard.faculty.institutional_email}
     >
-      <Breadcrumbs items={[{ label: "Dashboard", href: "/faculty/dashboard" }, { label: facultyRequestHeadline(request) }]} />
+      <Breadcrumbs items={[{ label: "Dashboard", href: "/faculty/dashboard" }, { label: "Requests", href: "/faculty/requests" }, { label: facultyRequestHeadline(request) }]} />
 
       <div className={styles.card}>
         <div className={styles.head}>
@@ -89,7 +137,6 @@ export function FacultyRequestDetailPage() {
           <Tag tone={CHANGE_REQUEST_STATUS_TONE[request.status]}>{CHANGE_REQUEST_STATUS_LABEL[request.status]}</Tag>
         </div>
 
-        {message && <div className={formStyles.banner}>{message}</div>}
         {error && <div className={formStyles.errorBanner}>{error}</div>}
 
         <dl className={styles.fields}>
@@ -113,8 +160,8 @@ export function FacultyRequestDetailPage() {
 
         {applicable && (
           <div className={formStyles.actions}>
-            <button type="button" className={formStyles.primaryButton} onClick={handleApply}>
-              Apply
+            <button type="button" className={formStyles.primaryButton} onClick={handleApply} disabled={applying}>
+              {applying ? "Applying…" : "Apply"}
             </button>
           </div>
         )}

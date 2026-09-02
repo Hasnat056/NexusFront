@@ -1,71 +1,56 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { DashboardShell } from "../components/layout/DashboardShell";
-import type { RailNavItem } from "../components/layout/Rail";
-import {
-  IconScroll,
-  IconHourglass,
-  IconInbox,
-  IconBars,
-  IconBook,
-  IconBuilding,
-  IconCalendar,
-  IconClipboard,
-  IconGraduationCap,
-  IconLayers,
-  IconGrid,
-  IconPeople,
-  IconPerson,
-  IconUserCheck,
-} from "../components/icons/Icons";
+import { useAdminPageConfig } from "../components/layout/AdminShellContext";
 import { Breadcrumbs } from "../components/ui/Breadcrumbs";
-import { createClass, emptyClassFormValue } from "../data/classDirectory";
-import { mockPrograms } from "../data/programDirectory";
-import { mockAdminDashboardResponse } from "../data/adminDashboard";
-import { mockCurrentSession } from "../data/session";
+import { apiGetAllPages, apiMutate, cached, invalidateCache } from "../lib/auth";
+import { ApiError, apiFormErrors } from "../lib/api";
+import type { AdminClass, AdminProgram } from "../types/api";
 import formStyles from "../components/ui/Form.module.css";
 import styles from "./PersonCreatePage.module.css";
 
-const RAIL_ITEMS: RailNavItem[] = [
-  { id: "dashboard", label: "Dashboard", icon: IconGrid, href: "/admin/dashboard" },
-  { id: "faculty", label: "Faculty", icon: IconPerson, href: "/admin/faculty" },
-  { id: "students", label: "Students", icon: IconPeople, href: "/admin/students" },
-  { id: "departments", label: "Departments", icon: IconBuilding, href: "/admin/departments" },
-  { id: "programs", label: "Programs", icon: IconLayers, href: "/admin/programs" },
-  { id: "courses", label: "Courses", icon: IconBook, href: "/admin/courses" },
-  { id: "classes", label: "Classes", icon: IconGraduationCap, href: "/admin/classes" },
-  { id: "allocations", label: "Allocations", icon: IconClipboard, href: "/admin/allocations" },
-  { id: "enrollments", label: "Enrollments", icon: IconUserCheck, href: "/admin/enrollments" },
-  { id: "sessions", label: "Sessions", icon: IconCalendar, href: "/admin/sessions" },
-  { id: "semesters", label: "Semesters", icon: IconHourglass, href: "/admin/semesters" },
-  { id: "transcripts", label: "Transcripts", icon: IconScroll, href: "/admin/transcripts" },
-  { id: "requests", label: "Requests", icon: IconInbox, href: "/admin/requests" },
-  { id: "reports", label: "Reports", icon: IconBars },
-];
-
 export function ClassCreatePage() {
   const navigate = useNavigate();
-  const admin = mockAdminDashboardResponse.admin;
-  const avatarInitials = `${admin.first_name[0]}${admin.last_name[0]}`.toUpperCase();
-  const [value, setValue] = useState(emptyClassFormValue());
+  useAdminPageConfig("New class");
+  const [programs, setPrograms] = useState<AdminProgram[]>([]);
+  const [value, setValue] = useState({ program: "", batch_year: String(new Date().getFullYear()) });
+  const [error, setError] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  const [submitting, setSubmitting] = useState(false);
 
-  function handleSubmit(e: React.FormEvent) {
+  useEffect(() => {
+    cached("admin:programs", () => apiGetAllPages<AdminProgram>("/admin/programs/"))
+      .then((res) => {
+        setPrograms(res);
+        setValue((v) => (v.program ? v : { ...v, program: res[0]?.program_id ?? "" }));
+      })
+      .catch((err: unknown) => {
+        if (err instanceof ApiError && err.status === 401) navigate("/login", { replace: true });
+      });
+  }, [navigate]);
+
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    const record = createClass(value);
-    navigate(`/admin/classes/${record.class_id}`);
+    setError(null);
+    setFieldErrors({});
+    setSubmitting(true);
+    try {
+      const record = await apiMutate<AdminClass>("/admin/classes/", "POST", {
+        program: value.program,
+        batch_year: value.batch_year ? Number(value.batch_year) : null,
+      });
+      invalidateCache("admin:classes");
+      navigate(`/admin/classes/${record.class_id}`);
+    } catch (err) {
+      const { banner, fields } = apiFormErrors(err);
+      setError(banner);
+      setFieldErrors(fields);
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   return (
-    <DashboardShell
-      railItems={RAIL_ITEMS}
-      activeRailId="classes"
-      homeHref="/admin/dashboard"
-      avatarInitials={avatarInitials}
-      pageTitle="New class"
-      sessionLabel={mockCurrentSession}
-      subtitle={admin.institutional_email}
-      profileHref="/admin/profile"
-    >
+    <>
       <Breadcrumbs
         items={[
           { label: "Dashboard", href: "/admin/dashboard" },
@@ -83,18 +68,21 @@ export function ClassCreatePage() {
           total_semesters; you'll assign sessions and courses to those on the class's own page.
         </p>
 
+        {error && <div className={formStyles.errorBanner}>{error}</div>}
+
         <div className={formStyles.row}>
-          <div className={formStyles.field}>
+          <div className={formStyles.field} data-invalid={fieldErrors.program ? "true" : undefined}>
             <label htmlFor="program">Program</label>
             <select id="program" value={value.program} onChange={(e) => setValue({ ...value, program: e.target.value })}>
-              {mockPrograms.map((p) => (
+              {programs.map((p) => (
                 <option key={p.program_id} value={p.program_id}>
                   {p.program_id} — {p.program_name}
                 </option>
               ))}
             </select>
+            {fieldErrors.program && <span className={formStyles.fieldError}>{fieldErrors.program}</span>}
           </div>
-          <div className={formStyles.field}>
+          <div className={formStyles.field} data-invalid={fieldErrors.batch_year ? "true" : undefined}>
             <label htmlFor="batch_year">Batch year</label>
             <input
               id="batch_year"
@@ -103,18 +91,19 @@ export function ClassCreatePage() {
               onChange={(e) => setValue({ ...value, batch_year: e.target.value })}
               required
             />
+            {fieldErrors.batch_year && <span className={formStyles.fieldError}>{fieldErrors.batch_year}</span>}
           </div>
         </div>
 
         <div className={formStyles.actions}>
-          <button type="submit" className={formStyles.primaryButton}>
-            Create class
+          <button type="submit" className={formStyles.primaryButton} disabled={submitting}>
+            {submitting ? "Creating…" : "Create class"}
           </button>
           <Link to="/admin/classes" className={formStyles.secondaryButton}>
             Cancel
           </Link>
         </div>
       </form>
-    </DashboardShell>
+    </>
   );
 }

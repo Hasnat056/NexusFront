@@ -1,64 +1,167 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { DashboardShell } from "../components/layout/DashboardShell";
-import type { RailNavItem } from "../components/layout/Rail";
-import { IconCalendar, IconGrid, IconPerson, IconScroll, IconTerminal, IconUserCheck } from "../components/icons/Icons";
+import { STUDENT_RAIL_ITEMS } from "../components/layout/studentRailItems";
 import { Panel } from "../components/ui/Panel";
 import { PersonFormFields } from "../components/ui/PersonFormFields";
+import { useToast } from "../components/ui/ToastContext";
 import {
   STUDENT_LOCKED_PERSON_FIELDS,
-  mockStudentProfile,
   studentProfileFormValueFromRecord,
-  updateStudentProfile,
   type StudentProfileFormValue,
 } from "../data/studentProfile";
+import { nonBlankQualificationIndices } from "../data/qualificationForm";
+import { apiGet, apiMutate, apiMutateForm } from "../lib/auth";
+import { ApiError, apiErrorMessage, apiFormErrors, remapListFieldErrors, splitFieldErrors } from "../lib/api";
+import type { StudentProfileDetail } from "../types/api";
 import formStyles from "../components/ui/Form.module.css";
 import styles from "./PersonDetailPage.module.css";
 
-const RAIL_ITEMS: RailNavItem[] = [
-  { id: "dashboard", label: "Dashboard", icon: IconGrid, href: "/student/dashboard" },
-  { id: "enrollments", label: "Enrollments", icon: IconUserCheck, href: "/student/enrollments" },
-  { id: "transcript", label: "Transcript", icon: IconScroll, href: "/student/transcript" },
-  { id: "attendance", label: "Attendance", icon: IconCalendar, href: "/student/attendance" },
-  { id: "profile", label: "Profile", icon: IconPerson, href: "/student/profile" },
-  { id: "scratchpad", label: "Scratchpad", icon: IconTerminal, href: "/student/scratchpad" },
-];
-
 export function StudentProfilePage() {
-  const record = mockStudentProfile;
-  const avatarInitials = `${record.person.first_name[0]}${record.person.last_name[0]}`.toUpperCase();
+  const navigate = useNavigate();
+  const { showToast } = useToast();
+  const [record, setRecord] = useState<StudentProfileDetail | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [refreshKey, setRefreshKey] = useState(0);
 
   const [editing, setEditing] = useState(false);
   const [formValue, setFormValue] = useState<StudentProfileFormValue | null>(null);
-  const [message, setMessage] = useState<string | null>(null);
+  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    apiGet<StudentProfileDetail>("/student/profile/")
+      .then((res) => {
+        if (!cancelled) setRecord(res);
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        if (err instanceof ApiError && err.status === 401) {
+          navigate("/login", { replace: true });
+          return;
+        }
+        setLoadError(apiErrorMessage(err));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [navigate, refreshKey]);
 
   function startEditing() {
+    if (!record) return;
     setFormValue(studentProfileFormValueFromRecord(record));
+    setImageFile(null);
     setEditing(true);
-    setMessage(null);
+    setSaveError(null);
+    setFieldErrors({});
   }
 
-  function handleSave(e: React.FormEvent) {
+  async function handleSave(e: React.FormEvent) {
     e.preventDefault();
     if (!formValue) return;
-    updateStudentProfile(formValue);
-    setEditing(false);
-    setMessage("Profile updated.");
+    setSaving(true);
+    setSaveError(null);
+    setFieldErrors({});
+    try {
+      // StudentProfileView.put() is a full update — StudentSerializer locks the identity fields
+      // (first/last name, father_name, cnic, dob, gender, institutional_email) plus program/
+      // student_class/admission_date/status read_only whenever the caller is in the Student
+      // group, so none of those are sent.
+      await apiMutate<StudentProfileDetail>("/student/profile/", "PUT", {
+        person: {
+          personal_email: formValue.personal_email || null,
+          contact_number: formValue.contact_number,
+          religion: formValue.religion || null,
+          address: {
+            country: formValue.address.country,
+            province: formValue.address.province || null,
+            city: formValue.address.city,
+            zipcode: formValue.address.zipcode ? Number(formValue.address.zipcode) : null,
+            street_address: formValue.address.street_address || null,
+          },
+          qualification_set: formValue.qualification_set
+            .filter((q) => q.degree_title.trim() || q.institution.trim())
+            .map((q) => ({
+              degree_title: q.degree_title,
+              education_board: q.education_board || null,
+              passing_year: q.passing_year ? Number(q.passing_year) : null,
+              institution: q.institution,
+              total_marks: q.total_marks ? Number(q.total_marks) : null,
+              obtained_marks: q.obtained_marks ? Number(q.obtained_marks) : null,
+              is_current: q.is_current,
+            })),
+        },
+      });
+
+      if (imageFile) {
+        const form = new FormData();
+        form.append("person.image", imageFile);
+        form.append("person.contact_number", formValue.contact_number);
+        await apiMutateForm<StudentProfileDetail>("/student/profile/", "PUT", form);
+      }
+
+      setEditing(false);
+      showToast("Profile updated.");
+      setRefreshKey((k) => k + 1);
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 401) {
+        navigate("/login", { replace: true });
+        return;
+      }
+      const { banner, fields } = apiFormErrors(err);
+      setSaveError(banner);
+      setFieldErrors(remapListFieldErrors(fields, "person.qualification_set", nonBlankQualificationIndices(formValue.qualification_set)));
+    } finally {
+      setSaving(false);
+    }
   }
+
+  const avatarInitials = record ? `${record.person.first_name[0]}${record.person.last_name[0]}`.toUpperCase() : "—";
+
+  if (loadError) {
+    return (
+      <DashboardShell railItems={STUDENT_RAIL_ITEMS} activeRailId="profile" homeHref="/student/dashboard" profileHref="/student/profile" avatarInitials="—" pageTitle="My profile" subtitle="">
+        <div className={formStyles.errorBanner}>{loadError}</div>
+      </DashboardShell>
+    );
+  }
+
+  if (!record) {
+    return (
+      <DashboardShell railItems={STUDENT_RAIL_ITEMS} activeRailId="profile" homeHref="/student/dashboard" profileHref="/student/profile" avatarInitials="—" pageTitle="My profile" subtitle="">
+        <p className={styles.notFound}>Loading profile…</p>
+      </DashboardShell>
+    );
+  }
+
+  const { matched: personFieldErrors } = splitFieldErrors(fieldErrors, "person");
 
   return (
     <DashboardShell
-      railItems={RAIL_ITEMS}
+      railItems={STUDENT_RAIL_ITEMS}
       activeRailId="profile"
       homeHref="/student/dashboard"
+      profileHref="/student/profile"
       avatarInitials={avatarInitials}
+      avatarSrc={record.person.image}
       pageTitle={editing ? "Edit profile" : "My profile"}
       subtitle={record.person.institutional_email}
     >
-      {message && <div className={formStyles.banner}>{message}</div>}
-
       {editing && formValue ? (
         <form className={styles.editCard} onSubmit={handleSave}>
-          <PersonFormFields value={formValue} onChange={setFormValue} isCreate={false} lockedFields={STUDENT_LOCKED_PERSON_FIELDS} />
+          {saveError && <div className={formStyles.errorBanner}>{saveError}</div>}
+
+          <PersonFormFields
+            value={formValue}
+            onChange={setFormValue}
+            isCreate={false}
+            lockedFields={STUDENT_LOCKED_PERSON_FIELDS}
+            onImageFile={setImageFile}
+            fieldErrors={personFieldErrors}
+          />
 
           <h3 className={formStyles.sectionTitle}>Enrollment</h3>
           <div className={formStyles.row}>
@@ -81,10 +184,10 @@ export function StudentProfilePage() {
           </span>
 
           <div className={formStyles.actions}>
-            <button type="submit" className={formStyles.primaryButton}>
-              Save changes
+            <button type="submit" className={formStyles.primaryButton} disabled={saving}>
+              {saving ? "Saving…" : "Save changes"}
             </button>
-            <button type="button" className={formStyles.secondaryButton} onClick={() => setEditing(false)}>
+            <button type="button" className={formStyles.secondaryButton} onClick={() => setEditing(false)} disabled={saving}>
               Cancel
             </button>
           </div>
@@ -92,7 +195,7 @@ export function StudentProfilePage() {
       ) : (
         <>
           <div className={styles.profileCard}>
-            <div className={styles.avatar}>{avatarInitials}</div>
+            <div className={styles.avatar}>{record.person.image ? <img src={record.person.image} alt="" /> : avatarInitials}</div>
             <div className={styles.profileMain}>
               <h1 className={styles.name}>
                 {record.person.first_name} {record.person.last_name}

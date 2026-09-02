@@ -1,49 +1,28 @@
-import { useState } from "react";
-import { Link, useParams } from "react-router-dom";
-import { DashboardShell } from "../components/layout/DashboardShell";
-import type { RailNavItem } from "../components/layout/Rail";
-import { IconScroll, IconHourglass, IconInbox, IconBars, IconBook, IconBuilding, IconCalendar, IconClipboard, IconGraduationCap, IconLayers, IconGrid, IconPeople, IconPerson, IconUserCheck } from "../components/icons/Icons";
+import { useEffect, useState } from "react";
+import { Link, useNavigate, useParams } from "react-router-dom";
+import { useAdminPageConfig } from "../components/layout/AdminShellContext";
 import { Breadcrumbs } from "../components/ui/Breadcrumbs";
 import { Panel } from "../components/ui/Panel";
 import { Tag } from "../components/ui/Tag";
 import { Table, type Column } from "../components/ui/Table";
 import { StatStrip } from "../components/ui/StatStrip";
 import { Avatar } from "../components/ui/Avatar";
-import {
-  getActiveHodChangeRequest,
-  getDepartmentById,
-  hodOptions,
-  requestHodChange,
-  selectDepartmentDetailStats,
-  setDepartmentHod,
-} from "../data/departmentDirectory";
-import { getFacultyByDepartment, getFacultyById, type MockFacultyRecord } from "../data/facultyDirectory";
-import { getProgramsByDepartment } from "../data/programDirectory";
-import { markChangeRequestApplied, markChangeRequestDeclined } from "../data/changeRequests";
-import { mockAdminDashboardResponse } from "../data/adminDashboard";
-import { mockCurrentSession } from "../data/session";
-import type { AdminProgram } from "../types/api";
+import { useToast } from "../components/ui/ToastContext";
+import { apiGet, apiGetAllPages, apiMutate, cached } from "../lib/auth";
+import { ApiError, apiErrorMessage, apiFormErrors } from "../lib/api";
+import type {
+  AdminDashboardResponse,
+  AdminDepartment,
+  AdminFacultyDetail,
+  AdminFacultyListItem,
+  AdminProgram,
+  ChangeRequest,
+} from "../types/api";
+import type { StatStripItem } from "../types/dashboard";
 import formStyles from "../components/ui/Form.module.css";
 import detailStyles from "./PersonDetailPage.module.css";
 import listStyles from "./FacultyListPage.module.css";
 import styles from "./DepartmentDetailPage.module.css";
-
-const RAIL_ITEMS: RailNavItem[] = [
-  { id: "dashboard", label: "Dashboard", icon: IconGrid, href: "/admin/dashboard" },
-  { id: "faculty", label: "Faculty", icon: IconPerson, href: "/admin/faculty" },
-  { id: "students", label: "Students", icon: IconPeople, href: "/admin/students" },
-  { id: "departments", label: "Departments", icon: IconBuilding, href: "/admin/departments" },
-  { id: "programs", label: "Programs", icon: IconLayers, href: "/admin/programs" },
-  { id: "courses", label: "Courses", icon: IconBook, href: "/admin/courses" },
-  { id: "classes", label: "Classes", icon: IconGraduationCap, href: "/admin/classes" },
-  { id: "allocations", label: "Allocations", icon: IconClipboard, href: "/admin/allocations" },
-  { id: "enrollments", label: "Enrollments", icon: IconUserCheck, href: "/admin/enrollments" },
-  { id: "sessions", label: "Sessions", icon: IconCalendar, href: "/admin/sessions" },
-  { id: "semesters", label: "Semesters", icon: IconHourglass, href: "/admin/semesters" },
-  { id: "transcripts", label: "Transcripts", icon: IconScroll, href: "/admin/transcripts" },
-  { id: "requests", label: "Requests", icon: IconInbox, href: "/admin/requests" },
-  { id: "reports", label: "Reports", icon: IconBars },
-];
 
 const programColumns: Column<AdminProgram>[] = [
   { key: "program_id", header: "Program ID", render: (p) => p.program_id },
@@ -61,100 +40,144 @@ const programColumns: Column<AdminProgram>[] = [
 
 export function DepartmentDetailPage() {
   const { departmentId } = useParams<{ departmentId: string }>();
-  const department = departmentId ? getDepartmentById(departmentId) : undefined;
-  const admin = mockAdminDashboardResponse.admin;
-  const avatarInitials = `${admin.first_name[0]}${admin.last_name[0]}`.toUpperCase();
+  const navigate = useNavigate();
+  const { showToast } = useToast();
 
-  const [hod, setHod] = useState(() => department?.HOD ?? "");
-  const [message, setMessage] = useState<string | null>(null);
-  const [, setTick] = useState(0);
+  const [department, setDepartment] = useState<AdminDepartment | null>(null);
+  const [currentHod, setCurrentHod] = useState<AdminFacultyDetail | null>(null);
+  const [facultyOptions, setFacultyOptions] = useState<AdminFacultyListItem[]>([]);
+  const [programs, setPrograms] = useState<AdminProgram[]>([]);
+  const [departmentFaculty, setDepartmentFaculty] = useState<AdminFacultyListItem[]>([]);
+  const [pendingHodRequest, setPendingHodRequest] = useState<ChangeRequest | null>(null);
+  const [stats, setStats] = useState<StatStripItem[]>([]);
+  const [notFound, setNotFound] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
-  if (!department) {
-    return (
-      <DashboardShell
-        railItems={RAIL_ITEMS}
-        activeRailId="departments"
-        homeHref="/admin/dashboard"
-        avatarInitials={avatarInitials}
-        pageTitle="Department"
-        sessionLabel={mockCurrentSession}
-        subtitle={admin.institutional_email}
-        profileHref="/admin/profile"
-      >
-        <Breadcrumbs
-          items={[
-            { label: "Dashboard", href: "/admin/dashboard" },
-            { label: "Departments", href: "/admin/departments" },
-            { label: departmentId ?? "Not found" },
-          ]}
-        />
-        <p className={detailStyles.notFound}>Department {departmentId} was not found.</p>
-      </DashboardShell>
-    );
-  }
+  const [hod, setHod] = useState("");
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [hodFieldError, setHodFieldError] = useState<string | null>(null);
+  const [refreshKey, setRefreshKey] = useState(0);
 
-  const facultyOptions = hodOptions();
-  const currentHod = department.HOD ? getFacultyById(department.HOD) : undefined;
-  const stats = selectDepartmentDetailStats(department.department_id);
-  const programs = getProgramsByDepartment(department.department_id);
-  const departmentFaculty = getFacultyByDepartment(department.department_id);
-  const pendingHodRequest = getActiveHodChangeRequest(department.department_id);
-  const pendingHodName = pendingHodRequest?.new_hod
-    ? (facultyOptions.find((f) => f.value === pendingHodRequest.new_hod)?.label ?? pendingHodRequest.new_hod)
-    : null;
+  useAdminPageConfig("Department");
 
-  function handleSubmitHodChange(e: React.FormEvent) {
+  useEffect(() => {
+    if (!departmentId) return;
+    let cancelled = false;
+
+    async function load() {
+      try {
+        const [dept, dashboard, allFaculty, programsRes, deptFaculty, hodRequests] = await Promise.all([
+          apiGet<AdminDepartment>(`/admin/departments/${departmentId}/`),
+          apiGet<AdminDashboardResponse>("/admin/dashboard/"),
+          cached("admin:all-faculty", () => apiGetAllPages<AdminFacultyListItem>("/admin/faculty/")),
+          apiGetAllPages<AdminProgram>(`/admin/programs/?department=${departmentId}`),
+          apiGetAllPages<AdminFacultyListItem>(`/admin/faculty/?department=${departmentId}`),
+          apiGetAllPages<ChangeRequest>("/admin/requests/?change_type=hod_change"),
+        ]);
+        if (cancelled) return;
+
+        const hodDetail = dept.HOD ? await apiGet<AdminFacultyDetail>(`/admin/faculty/${dept.HOD}/`) : null;
+        if (cancelled) return;
+
+        setDepartment(dept);
+        setCurrentHod(hodDetail);
+        setHod(dept.HOD ?? "");
+        setFacultyOptions(allFaculty);
+        setPrograms(programsRes);
+        setDepartmentFaculty(deptFaculty);
+        const deptStats = dashboard.departments_data.find((d) => d.department_id === departmentId);
+        setStats([
+          { value: deptStats?.student_count ?? 0, label: "Students" },
+          { value: deptStats?.faculty_count ?? 0, label: "Faculty" },
+          { value: deptStats?.program_count ?? 0, label: "Programs" },
+        ]);
+        const pending = hodRequests.find(
+          (cr) => cr.department === departmentId && cr.status !== "applied" && cr.status !== "declined" && cr.status !== "expired",
+        );
+        setPendingHodRequest(pending ?? null);
+      } catch (err) {
+        if (cancelled) return;
+        if (err instanceof ApiError && err.status === 404) {
+          setNotFound(true);
+          return;
+        }
+        if (err instanceof ApiError && err.status === 401) {
+          navigate("/login", { replace: true });
+          return;
+        }
+        setLoadError(apiErrorMessage(err));
+      }
+    }
+
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [departmentId, navigate, refreshKey]);
+
+  async function handleSubmitHodChange(e: React.FormEvent) {
     e.preventDefault();
-    const result = requestHodChange(department!.department_id, hod || null);
-    setMessage(result.message);
-    setTick((t) => t + 1);
+    if (!departmentId) return;
+    setActionError(null);
+    setHodFieldError(null);
+    if (!hod) {
+      showToast("Choose a faculty member first.", "info");
+      return;
+    }
+    if (department?.HOD === hod) {
+      showToast("That faculty member is already the HOD.", "info");
+      return;
+    }
+    try {
+      await apiMutate(`/admin/departments/${departmentId}/`, "PATCH", { HOD: hod });
+      showToast("HOD change request submitted — a confirmation email has been sent. The HOD won't change until it's confirmed and applied.");
+      setRefreshKey((k) => k + 1);
+    } catch (err) {
+      const { banner, fields } = apiFormErrors(err);
+      setActionError(banner);
+      setHodFieldError(fields.HOD ?? null);
+    }
   }
 
-  function handleApplyHod() {
+  async function handleApplyHod() {
     if (!pendingHodRequest) return;
-    setDepartmentHod(department!.department_id, pendingHodRequest.new_hod);
-    markChangeRequestApplied(pendingHodRequest.id);
-    setMessage("HOD change applied.");
-    setTick((t) => t + 1);
+    setActionError(null);
+    try {
+      await apiMutate(`/admin/requests/${pendingHodRequest.id}/`, "PATCH", { status: "applied" });
+      showToast("HOD change applied.");
+      setRefreshKey((k) => k + 1);
+    } catch (err) {
+      setActionError(apiErrorMessage(err));
+    }
   }
 
-  function handleDeclineHod() {
+  async function handleDeclineHod() {
     if (!pendingHodRequest) return;
-    markChangeRequestDeclined(pendingHodRequest.id);
-    setMessage("HOD change declined.");
-    setTick((t) => t + 1);
+    setActionError(null);
+    try {
+      await apiMutate(`/admin/requests/${pendingHodRequest.id}/`, "PATCH", { status: "declined" });
+      showToast("HOD change declined.");
+      setRefreshKey((k) => k + 1);
+    } catch (err) {
+      setActionError(apiErrorMessage(err));
+    }
   }
 
-  const facultyColumns: Column<MockFacultyRecord>[] = [
-    { key: "id", header: "Employee ID", render: (f) => f.person.person_id },
-    {
-      key: "name",
-      header: "Name",
-      render: (f) => (
-        <Link to={`/admin/faculty/${f.person.person_id}`} className={listStyles.nameLink}>
-          {f.person.first_name} {f.person.last_name}
-        </Link>
-      ),
-    },
-    { key: "designation", header: "Designation", render: (f) => f.designation },
-    {
-      key: "role",
-      header: "",
-      render: (f) => (f.person.person_id === department.HOD ? <Tag tone="good">HOD</Tag> : null),
-    },
-  ];
-
-  return (
-    <DashboardShell
-      railItems={RAIL_ITEMS}
-      activeRailId="departments"
-      homeHref="/admin/dashboard"
-      avatarInitials={avatarInitials}
-      pageTitle="Department"
-      sessionLabel={mockCurrentSession}
-      subtitle={admin.institutional_email}
-      profileHref="/admin/profile"
-    >
+  return notFound || loadError ? (
+    <>
+      <Breadcrumbs
+        items={[
+          { label: "Dashboard", href: "/admin/dashboard" },
+          { label: "Departments", href: "/admin/departments" },
+          { label: departmentId ?? "Not found" },
+        ]}
+      />
+      <p className={detailStyles.notFound}>{loadError ?? `Department ${departmentId} was not found.`}</p>
+    </>
+  ) : !department ? (
+    <p className={listStyles.empty}>Loading department…</p>
+  ) : (
+    <>
       <Breadcrumbs
         items={[
           { label: "Dashboard", href: "/admin/dashboard" },
@@ -163,7 +186,7 @@ export function DepartmentDetailPage() {
         ]}
       />
 
-      {message && <div className={formStyles.banner}>{message}</div>}
+      {actionError && <div className={formStyles.errorBanner}>{actionError}</div>}
 
       <div className={detailStyles.profileCard}>
         <div className={detailStyles.profileMain}>
@@ -194,11 +217,16 @@ export function DepartmentDetailPage() {
             )}
           </div>
           <form className={styles.hodEditRow} onSubmit={handleSubmitHodChange}>
-            <select className={styles.hodSelect} value={hod} onChange={(e) => setHod(e.target.value)}>
+            <select
+              className={styles.hodSelect}
+              value={hod}
+              onChange={(e) => setHod(e.target.value)}
+              style={hodFieldError ? { borderColor: "var(--color-critical)" } : undefined}
+            >
               <option value="">Unassigned</option>
               {facultyOptions.map((f) => (
-                <option key={f.value} value={f.value}>
-                  {f.label}
+                <option key={f.person.person_id} value={f.person.person_id}>
+                  {f.person.first_name} {f.person.last_name} — {f.person.person_id}
                 </option>
               ))}
             </select>
@@ -207,12 +235,15 @@ export function DepartmentDetailPage() {
             </button>
           </form>
         </div>
+        {hodFieldError && <span className={formStyles.fieldError}>{hodFieldError}</span>}
 
         {pendingHodRequest && (
           <div className={styles.pillReview}>
             <Tag tone="warning">{`HOD change ${pendingHodRequest.status}`}</Tag>
             <span className={styles.pillWho}>
-              {currentHod ? currentHod.person.first_name : "Unassigned"} → {pendingHodName}
+              {currentHod ? currentHod.person.first_name : "Unassigned"} →{" "}
+              {facultyOptions.find((f) => f.person.person_id === pendingHodRequest.new_hod)?.person.first_name ??
+                pendingHodRequest.new_hod}
             </span>
             <span className={styles.pillDivider} />
             <button type="button" className={`${styles.pillBtn} ${styles.apply}`} onClick={handleApplyHod}>
@@ -235,11 +266,32 @@ export function DepartmentDetailPage() {
 
       <Panel title="Faculty" hint={`${departmentFaculty.length} members`}>
         {departmentFaculty.length > 0 ? (
-          <Table columns={facultyColumns} rows={departmentFaculty} rowKey={(f) => f.person.person_id} />
+          <Table
+            columns={[
+              { key: "id", header: "Employee ID", render: (f: AdminFacultyListItem) => f.person.person_id },
+              {
+                key: "name",
+                header: "Name",
+                render: (f: AdminFacultyListItem) => (
+                  <Link to={`/admin/faculty/${f.person.person_id}`} className={listStyles.nameLink}>
+                    {f.person.first_name} {f.person.last_name}
+                  </Link>
+                ),
+              },
+              { key: "designation", header: "Designation", render: (f: AdminFacultyListItem) => f.designation },
+              {
+                key: "role",
+                header: "",
+                render: (f: AdminFacultyListItem) => (f.person.person_id === department.HOD ? <Tag tone="good">HOD</Tag> : null),
+              },
+            ]}
+            rows={departmentFaculty}
+            rowKey={(f) => f.person.person_id}
+          />
         ) : (
           <p className={detailStyles.empty}>No faculty in this department yet.</p>
         )}
       </Panel>
-    </DashboardShell>
+    </>
   );
 }

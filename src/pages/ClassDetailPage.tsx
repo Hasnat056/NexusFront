@@ -1,114 +1,130 @@
-import { useState } from "react";
-import { useParams } from "react-router-dom";
-import { DashboardShell } from "../components/layout/DashboardShell";
-import type { RailNavItem } from "../components/layout/Rail";
-import {
-  IconScroll,
-  IconHourglass,
-  IconInbox,
-  IconBars,
-  IconBook,
-  IconBuilding,
-  IconCalendar,
-  IconClipboard,
-  IconGraduationCap,
-  IconLayers,
-  IconGrid,
-  IconPeople,
-  IconPerson,
-  IconUserCheck,
-} from "../components/icons/Icons";
+import { useEffect, useState } from "react";
+import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
+import { useAdminPageConfig } from "../components/layout/AdminShellContext";
 import { Breadcrumbs } from "../components/ui/Breadcrumbs";
 import { Panel } from "../components/ui/Panel";
+import { SearchableSelect } from "../components/ui/SearchableSelect";
 import { Tag } from "../components/ui/Tag";
-import {
-  SEMESTER_STATUS_TONE,
-  classLabel,
-  getClassById,
-  schemeEditFromRecord,
-  updateClass,
-  updateClassScheme,
-  type ClassFormValue,
-  type SchemeSemesterEdit,
-} from "../data/classDirectory";
-import { mockCourses } from "../data/courseDirectory";
-import { mockPrograms } from "../data/programDirectory";
-import { mockSessions } from "../data/sessionDirectory";
-import { mockAdminDashboardResponse } from "../data/adminDashboard";
-import { mockCurrentSession } from "../data/session";
+import { useToast } from "../components/ui/ToastContext";
+import { apiGet, apiGetAllPages, apiMutate, cached, invalidateCache } from "../lib/auth";
+import { ApiError, apiErrorMessage, apiFormErrors } from "../lib/api";
+import type { AdminClass, AdminCourse, AdminProgram, AdminSession, SemesterStatus } from "../types/api";
 import formStyles from "../components/ui/Form.module.css";
 import detailStyles from "./PersonDetailPage.module.css";
 import styles from "./ClassDetailPage.module.css";
 
-const RAIL_ITEMS: RailNavItem[] = [
-  { id: "dashboard", label: "Dashboard", icon: IconGrid, href: "/admin/dashboard" },
-  { id: "faculty", label: "Faculty", icon: IconPerson, href: "/admin/faculty" },
-  { id: "students", label: "Students", icon: IconPeople, href: "/admin/students" },
-  { id: "departments", label: "Departments", icon: IconBuilding, href: "/admin/departments" },
-  { id: "programs", label: "Programs", icon: IconLayers, href: "/admin/programs" },
-  { id: "courses", label: "Courses", icon: IconBook, href: "/admin/courses" },
-  { id: "classes", label: "Classes", icon: IconGraduationCap, href: "/admin/classes" },
-  { id: "allocations", label: "Allocations", icon: IconClipboard, href: "/admin/allocations" },
-  { id: "enrollments", label: "Enrollments", icon: IconUserCheck, href: "/admin/enrollments" },
-  { id: "sessions", label: "Sessions", icon: IconCalendar, href: "/admin/sessions" },
-  { id: "semesters", label: "Semesters", icon: IconHourglass, href: "/admin/semesters" },
-  { id: "transcripts", label: "Transcripts", icon: IconScroll, href: "/admin/transcripts" },
-  { id: "requests", label: "Requests", icon: IconInbox, href: "/admin/requests" },
-  { id: "reports", label: "Reports", icon: IconBars },
-];
+const SEMESTER_STATUS_TONE: Record<SemesterStatus, "warning" | "good" | "critical"> = {
+  Inactive: "warning",
+  Active: "good",
+  Completed: "critical",
+};
 
-function sessionLabel(sessionId: number): string {
-  const session = mockSessions.find((s) => s.id === sessionId);
-  return session ? `${session.period} ${session.year}` : `#${sessionId}`;
+function classLabel(cls: Pick<AdminClass, "program" | "batch_year">): string {
+  return `${cls.program}-${cls.batch_year ?? "?"}`;
+}
+
+interface SchemeSemesterEdit {
+  semester_id: number;
+  semester_no: number;
+  status: SemesterStatus;
+  session: string;
+  courses: string[];
+}
+
+function schemeEditFromRecord(record: AdminClass): SchemeSemesterEdit[] {
+  return (record.scheme_of_studies ?? []).map((s) => ({
+    semester_id: s.semester_id,
+    semester_no: s.semester_no,
+    status: s.status,
+    session: s.session !== null ? String(s.session) : "",
+    courses: s.semesterdetails_set.map((d) => d.course).filter((c): c is string => c !== null),
+  }));
 }
 
 export function ClassDetailPage() {
   const { classId } = useParams<{ classId: string }>();
-  const record = classId ? getClassById(Number(classId)) : undefined;
-  const admin = mockAdminDashboardResponse.admin;
-  const avatarInitials = `${admin.first_name[0]}${admin.last_name[0]}`.toUpperCase();
+  const navigate = useNavigate();
+  const location = useLocation();
+  const { showToast } = useToast();
+  const viewPath = `/admin/classes/${classId}`;
+  const editing = location.pathname.endsWith("/edit");
+  const [record, setRecord] = useState<AdminClass | null>(null);
+  const [programs, setPrograms] = useState<AdminProgram[]>([]);
+  const [sessions, setSessions] = useState<AdminSession[]>([]);
+  const [courses, setCourses] = useState<AdminCourse[]>([]);
+  const [notFound, setNotFound] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [refreshKey, setRefreshKey] = useState(0);
 
-  const [editing, setEditing] = useState(false);
-  const [formValue, setFormValue] = useState<ClassFormValue | null>(null);
-  const [schemeEdits, setSchemeEdits] = useState<SchemeSemesterEdit[]>(() => (record ? schemeEditFromRecord(record) : []));
-  const [message, setMessage] = useState<string | null>(null);
+  const [formValue, setFormValue] = useState<{ program: string; batch_year: string } | null>(null);
+  const [schemeEdits, setSchemeEdits] = useState<SchemeSemesterEdit[]>([]);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  const [schemeError, setSchemeError] = useState<string | null>(null);
 
-  if (!record) {
-    return (
-      <DashboardShell
-        railItems={RAIL_ITEMS}
-        activeRailId="classes"
-        homeHref="/admin/dashboard"
-        avatarInitials={avatarInitials}
-        pageTitle="Class"
-        sessionLabel={mockCurrentSession}
-        subtitle={admin.institutional_email}
-        profileHref="/admin/profile"
-      >
-        <Breadcrumbs
-          items={[
-            { label: "Dashboard", href: "/admin/dashboard" },
-            { label: "Classes", href: "/admin/classes" },
-            { label: classId ?? "Not found" },
-          ]}
-        />
-        <p className={detailStyles.notFound}>Class {classId} was not found.</p>
-      </DashboardShell>
-    );
-  }
+  useAdminPageConfig(editing ? "Edit class" : "Class");
 
-  function startEditing() {
-    setFormValue({ program: record!.program, batch_year: record!.batch_year !== null ? String(record!.batch_year) : "" });
-    setEditing(true);
-    setMessage(null);
-  }
+  useEffect(() => {
+    if (!classId) return;
+    let cancelled = false;
+    Promise.all([
+      apiGet<AdminClass>(`/admin/classes/${classId}/`),
+      cached("admin:programs", () => apiGetAllPages<AdminProgram>("/admin/programs/")),
+      cached("admin:sessions", () => apiGetAllPages<AdminSession>("/admin/sessions/")),
+      cached("admin:courses", () => apiGetAllPages<AdminCourse>("/admin/courses/")),
+    ])
+      .then(([classRes, programsRes, sessionsRes, coursesRes]) => {
+        if (cancelled) return;
+        setRecord(classRes);
+        setSchemeEdits(schemeEditFromRecord(classRes));
+        setPrograms(programsRes);
+        setSessions(sessionsRes);
+        setCourses(coursesRes);
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        if (err instanceof ApiError && err.status === 404) {
+          setNotFound(true);
+          return;
+        }
+        if (err instanceof ApiError && err.status === 401) {
+          navigate("/login", { replace: true });
+          return;
+        }
+        setLoadError(apiErrorMessage(err));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [classId, navigate, refreshKey]);
 
-  function handleSave(e: React.FormEvent) {
+  useEffect(() => {
+    if (editing && record) {
+      setFormValue({ program: record.program, batch_year: record.batch_year !== null ? String(record.batch_year) : "" });
+      setActionError(null);
+      setFieldErrors({});
+    }
+  }, [editing, record]);
+
+  async function handleSave(e: React.FormEvent) {
     e.preventDefault();
-    if (!formValue) return;
-    updateClass(record!.class_id, formValue);
-    setEditing(false);
-    setMessage("Class updated.");
+    if (!formValue || !classId) return;
+    setActionError(null);
+    setFieldErrors({});
+    try {
+      await apiMutate<AdminClass>(`/admin/classes/${classId}/`, "PATCH", {
+        program: formValue.program,
+        batch_year: formValue.batch_year ? Number(formValue.batch_year) : null,
+      });
+      invalidateCache("admin:classes");
+      navigate(viewPath);
+      showToast("Class updated.");
+      setRefreshKey((k) => k + 1);
+    } catch (err) {
+      const { banner, fields } = apiFormErrors(err);
+      setActionError(banner);
+      setFieldErrors(fields);
+    }
   }
 
   function setSemesterSession(semesterId: number, session: string) {
@@ -139,50 +155,93 @@ export function ClassDetailPage() {
     );
   }
 
-  function handleSaveScheme(e: React.FormEvent) {
+  async function handleSaveScheme(e: React.FormEvent) {
     e.preventDefault();
+    if (!classId) return;
+    setActionError(null);
     const cleaned = schemeEdits.map((edit) => ({ ...edit, courses: edit.courses.filter((c) => c !== "") }));
-    updateClassScheme(record!.class_id, cleaned);
-    setSchemeEdits(cleaned);
-    setMessage("Scheme of studies updated.");
+    setSchemeError(null);
+    try {
+      await apiMutate<AdminClass>(`/admin/classes/${classId}/`, "PATCH", {
+        scheme_of_studies: cleaned.map((edit) => ({
+          semester_id: edit.semester_id,
+          session: edit.session ? Number(edit.session) : null,
+          semesterdetails_set: edit.courses.length > 0 ? edit.courses.map((code) => ({ course: code })) : [{ course: null }],
+        })),
+      });
+      invalidateCache("admin:classes");
+      showToast("Scheme of studies updated.");
+      setRefreshKey((k) => k + 1);
+    } catch (err) {
+      setSchemeError(apiErrorMessage(err));
+    }
+  }
+
+  if (notFound) {
+    return (
+      <>
+        <Breadcrumbs
+          items={[
+            { label: "Dashboard", href: "/admin/dashboard" },
+            { label: "Classes", href: "/admin/classes" },
+            { label: classId ?? "Not found" },
+          ]}
+        />
+        <p className={detailStyles.notFound}>Class {classId} was not found.</p>
+      </>
+    );
+  }
+
+  if (loadError) {
+    return <div className={formStyles.errorBanner}>{loadError}</div>;
+  }
+
+  if (!record) {
+    return <p className={detailStyles.empty}>Loading class…</p>;
+  }
+
+  function sessionLabel(sessionId: number): string {
+    const session = sessions.find((s) => s.id === sessionId);
+    return session ? `${session.period} ${session.year}` : `#${sessionId}`;
   }
 
   return (
-    <DashboardShell
-      railItems={RAIL_ITEMS}
-      activeRailId="classes"
-      homeHref="/admin/dashboard"
-      avatarInitials={avatarInitials}
-      pageTitle={editing ? "Edit class" : "Class"}
-      sessionLabel={mockCurrentSession}
-      subtitle={admin.institutional_email}
-      profileHref="/admin/profile"
-    >
+    <>
       <Breadcrumbs
-        items={[
-          { label: "Dashboard", href: "/admin/dashboard" },
-          { label: "Classes", href: "/admin/classes" },
-          { label: classLabel(record) },
-        ]}
+        items={
+          editing
+            ? [
+                { label: "Dashboard", href: "/admin/dashboard" },
+                { label: "Classes", href: "/admin/classes" },
+                { label: classLabel(record), href: viewPath },
+                { label: "Edit" },
+              ]
+            : [
+                { label: "Dashboard", href: "/admin/dashboard" },
+                { label: "Classes", href: "/admin/classes" },
+                { label: classLabel(record) },
+              ]
+        }
       />
 
-      {message && <div className={formStyles.banner}>{message}</div>}
+      {actionError && <div className={formStyles.errorBanner}>{actionError}</div>}
 
       {editing && formValue ? (
         <form className={detailStyles.editCard} onSubmit={handleSave}>
           <h3 className={formStyles.sectionTitle}>Class</h3>
           <div className={formStyles.row}>
-            <div className={formStyles.field}>
+            <div className={formStyles.field} data-invalid={fieldErrors.program ? "true" : undefined}>
               <label htmlFor="program">Program</label>
               <select id="program" value={formValue.program} onChange={(e) => setFormValue({ ...formValue, program: e.target.value })}>
-                {mockPrograms.map((p) => (
+                {programs.map((p) => (
                   <option key={p.program_id} value={p.program_id}>
                     {p.program_id} — {p.program_name}
                   </option>
                 ))}
               </select>
+              {fieldErrors.program && <span className={formStyles.fieldError}>{fieldErrors.program}</span>}
             </div>
-            <div className={formStyles.field}>
+            <div className={formStyles.field} data-invalid={fieldErrors.batch_year ? "true" : undefined}>
               <label htmlFor="batch_year">Batch year</label>
               <input
                 id="batch_year"
@@ -191,6 +250,7 @@ export function ClassDetailPage() {
                 onChange={(e) => setFormValue({ ...formValue, batch_year: e.target.value })}
                 required
               />
+              {fieldErrors.batch_year && <span className={formStyles.fieldError}>{fieldErrors.batch_year}</span>}
             </div>
           </div>
           <span className={formStyles.hint}>
@@ -201,7 +261,7 @@ export function ClassDetailPage() {
             <button type="submit" className={formStyles.primaryButton}>
               Save changes
             </button>
-            <button type="button" className={formStyles.secondaryButton} onClick={() => setEditing(false)}>
+            <button type="button" className={formStyles.secondaryButton} onClick={() => navigate(viewPath)}>
               Cancel
             </button>
           </div>
@@ -210,26 +270,22 @@ export function ClassDetailPage() {
         <div className={detailStyles.profileCard}>
           <div className={detailStyles.profileMain}>
             <h1 className={detailStyles.name}>{classLabel(record)}</h1>
-            <p className={detailStyles.subline}>Class #{record.class_id} · {record.program}</p>
+            <p className={detailStyles.subline}>
+              Class #{record.class_id} · {record.program}
+            </p>
           </div>
           <div className={formStyles.actions}>
-            <button type="button" className={formStyles.secondaryButton} onClick={startEditing}>
+            <Link to={`${viewPath}/edit`} className={formStyles.secondaryButton}>
               Edit
-            </button>
+            </Link>
           </div>
         </div>
       )}
 
       {!editing && (
-        <Panel title="Scheme of studies" hint="Not a real field on Class — see the hint below">
+        <Panel title="Scheme of studies">
           <form className={detailStyles.panelBody} onSubmit={handleSaveScheme}>
-            <span className={formStyles.hint}>
-              Class (Models/models.py) only stores class_id, program, batch_year — scheme_of_studies
-              is a computed field that lists this class's Semester rows and their assigned course(s).
-              At creation, ClassSerializer.create() auto-generated {schemeEdits.length} blank
-              semesters here (Program.total_semesters for {record.program}). Saving below submits
-              the whole list in one PATCH, same shape as ClassSerializer.update() expects.
-            </span>
+            {schemeError && <div className={formStyles.errorBanner}>{schemeError}</div>}
 
             {schemeEdits.map((edit) => (
               <div className={formStyles.qualRow} key={edit.semester_id}>
@@ -246,7 +302,7 @@ export function ClassDetailPage() {
                       onChange={(e) => setSemesterSession(edit.semester_id, e.target.value)}
                     >
                       <option value="">Unassigned</option>
-                      {mockSessions.map((s) => (
+                      {sessions.map((s) => (
                         <option key={s.id} value={s.id}>
                           {sessionLabel(s.id)}
                         </option>
@@ -261,18 +317,20 @@ export function ClassDetailPage() {
                     <div className={styles.courseGrid}>
                       {edit.courses.map((code, courseIndex) => (
                         <div className={styles.courseItem} key={courseIndex}>
-                          <select
-                            aria-label={`Course ${courseIndex + 1} for semester ${edit.semester_no}`}
+                          <SearchableSelect
+                            ariaLabel={`Course ${courseIndex + 1} for semester ${edit.semester_no}`}
                             value={code}
-                            onChange={(e) => setCourseRow(edit.semester_id, courseIndex, e.target.value)}
-                          >
-                            <option value="">Select a course…</option>
-                            {mockCourses.map((c) => (
-                              <option key={c.course_code} value={c.course_code}>
-                                {c.course_code} — {c.course_name}
-                              </option>
-                            ))}
-                          </select>
+                            onChange={(next) => setCourseRow(edit.semester_id, courseIndex, next)}
+                            placeholder="Select a course…"
+                            searchPlaceholder="Search courses…"
+                            noResultsLabel={(query) => `No courses found for "${query}"`}
+                            options={courses.map((c) => ({
+                              value: c.course_code,
+                              label: c.course_code,
+                              sublabel: c.course_name,
+                              triggerLabel: `${c.course_code} — ${c.course_name}`,
+                            }))}
+                          />
                           <button
                             type="button"
                             className={formStyles.linkButton}
@@ -299,6 +357,6 @@ export function ClassDetailPage() {
           </form>
         </Panel>
       )}
-    </DashboardShell>
+    </>
   );
 }

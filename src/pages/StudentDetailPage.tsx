@@ -1,45 +1,25 @@
-import { useState } from "react";
-import { useParams } from "react-router-dom";
-import { DashboardShell } from "../components/layout/DashboardShell";
-import type { RailNavItem } from "../components/layout/Rail";
-import { IconScroll, IconHourglass, IconInbox, IconBars, IconBook, IconBuilding, IconCalendar, IconClipboard, IconGraduationCap, IconLayers, IconGrid, IconPeople, IconPerson, IconUserCheck } from "../components/icons/Icons";
+import { useEffect, useMemo, useState } from "react";
+import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
+import { useAdminPageConfig } from "../components/layout/AdminShellContext";
 import { Breadcrumbs } from "../components/ui/Breadcrumbs";
 import { Panel } from "../components/ui/Panel";
 import { Table, type Column } from "../components/ui/Table";
 import { Tag } from "../components/ui/Tag";
 import { PersonFormFields } from "../components/ui/PersonFormFields";
-import {
-  STUDENT_STATUSES,
-  getStudentById,
-  requestStudentDeletion,
-  studentFormValueFromRecord,
-  updateStudentRecord,
-  type StudentFormValue,
-} from "../data/studentDirectory";
-import { CLASSES, PROGRAMS, classLabel } from "../data/academicStructure";
-import { mockAdminDashboardResponse } from "../data/adminDashboard";
-import { mockCurrentSession } from "../data/session";
-import type { AdminEnrollmentSummary } from "../types/api";
+import { useToast } from "../components/ui/ToastContext";
+import { STUDENT_STATUSES, studentFormValueFromRecord } from "../data/studentDirectory";
+import type { StudentFormValue } from "../data/studentDirectory";
+import { apiGet, apiGetAllPages, apiMutate, apiMutateForm, cached, invalidateCache } from "../lib/auth";
+import { ApiError, apiErrorMessage, apiFormErrors, remapListFieldErrors, splitFieldErrors } from "../lib/api";
+import { nonBlankQualificationIndices } from "../data/qualificationForm";
+import type { AdminClass, AdminEnrollmentSummary, AdminProgram, AdminStudentDetail } from "../types/api";
 import type { StatusTone } from "../types/dashboard";
 import formStyles from "../components/ui/Form.module.css";
 import styles from "./PersonDetailPage.module.css";
 
-const RAIL_ITEMS: RailNavItem[] = [
-  { id: "dashboard", label: "Dashboard", icon: IconGrid, href: "/admin/dashboard" },
-  { id: "faculty", label: "Faculty", icon: IconPerson, href: "/admin/faculty" },
-  { id: "students", label: "Students", icon: IconPeople, href: "/admin/students" },
-  { id: "departments", label: "Departments", icon: IconBuilding, href: "/admin/departments" },
-  { id: "programs", label: "Programs", icon: IconLayers, href: "/admin/programs" },
-  { id: "courses", label: "Courses", icon: IconBook, href: "/admin/courses" },
-  { id: "classes", label: "Classes", icon: IconGraduationCap, href: "/admin/classes" },
-  { id: "allocations", label: "Allocations", icon: IconClipboard, href: "/admin/allocations" },
-  { id: "enrollments", label: "Enrollments", icon: IconUserCheck, href: "/admin/enrollments" },
-  { id: "sessions", label: "Sessions", icon: IconCalendar, href: "/admin/sessions" },
-  { id: "semesters", label: "Semesters", icon: IconHourglass, href: "/admin/semesters" },
-  { id: "transcripts", label: "Transcripts", icon: IconScroll, href: "/admin/transcripts" },
-  { id: "requests", label: "Requests", icon: IconInbox, href: "/admin/requests" },
-  { id: "reports", label: "Reports", icon: IconBars },
-];
+function classLabel(cls: Pick<AdminClass, "program" | "batch_year">): string {
+  return `${cls.program}-${cls.batch_year ?? "?"}`;
+}
 
 const ENROLLMENT_TONE: Record<AdminEnrollmentSummary["status"], StatusTone> = {
   Active: "good",
@@ -57,31 +37,91 @@ const enrollmentColumns: Column<AdminEnrollmentSummary>[] = [
     header: "Status",
     render: (row) => <Tag tone={ENROLLMENT_TONE[row.status]}>{row.status}</Tag>,
   },
-  { key: "result", header: "Result", render: (row) => (row.result ? `${row.result.obtained_marks} (GPA ${row.result.course_gpa})` : "—") },
+  {
+    key: "result",
+    header: "Result",
+    render: (row) => (row.result?.course_gpa != null ? `${row.result.obtained_marks ?? "—"} (GPA ${row.result.course_gpa})` : "—"),
+  },
 ];
+
+const STATUS_TONE: Record<string, StatusTone> = {
+  Active: "good",
+  Graduated: "good",
+  "On Probation": "warning",
+  Frozen: "warning",
+  Dropped: "critical",
+};
 
 export function StudentDetailPage() {
   const { studentId } = useParams<{ studentId: string }>();
-  const record = studentId ? getStudentById(studentId) : undefined;
-  const admin = mockAdminDashboardResponse.admin;
-  const avatarInitials = `${admin.first_name[0]}${admin.last_name[0]}`.toUpperCase();
+  const navigate = useNavigate();
+  const location = useLocation();
+  const { showToast } = useToast();
+  const viewPath = `/admin/students/${studentId}`;
+  const editing = location.pathname.endsWith("/edit");
+  const [record, setRecord] = useState<AdminStudentDetail | null>(null);
+  const [programs, setPrograms] = useState<AdminProgram[]>([]);
+  const [classes, setClasses] = useState<AdminClass[]>([]);
+  const [notFound, setNotFound] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [refreshKey, setRefreshKey] = useState(0);
 
-  const [editing, setEditing] = useState(false);
   const [formValue, setFormValue] = useState<StudentFormValue | null>(null);
-  const [message, setMessage] = useState<string | null>(null);
+  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  const [saving, setSaving] = useState(false);
 
-  if (!record) {
+  useAdminPageConfig(editing ? "Edit student" : "Student");
+
+  useEffect(() => {
+    if (!studentId) return;
+    let cancelled = false;
+    Promise.all([
+      apiGet<AdminStudentDetail>(`/admin/students/${studentId}/`),
+      cached("admin:programs", () => apiGetAllPages<AdminProgram>("/admin/programs/")),
+      cached("admin:classes", () => apiGetAllPages<AdminClass>("/admin/classes/")),
+    ])
+      .then(([recordRes, programsRes, classesRes]) => {
+        if (cancelled) return;
+        setRecord(recordRes);
+        setPrograms(programsRes);
+        setClasses(classesRes);
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        if (err instanceof ApiError && err.status === 404) {
+          setNotFound(true);
+          return;
+        }
+        if (err instanceof ApiError && err.status === 401) {
+          navigate("/login", { replace: true });
+          return;
+        }
+        setLoadError(apiErrorMessage(err));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [studentId, navigate, refreshKey]);
+
+  useEffect(() => {
+    if (editing && record) {
+      setFormValue(studentFormValueFromRecord(record));
+      setImageFile(null);
+      setSaveError(null);
+      setFieldErrors({});
+    }
+  }, [editing, record]);
+
+  const classesForProgram = useMemo(
+    () => (formValue ? classes.filter((c) => c.program === formValue.program) : []),
+    [classes, formValue],
+  );
+
+  if (notFound) {
     return (
-      <DashboardShell
-        railItems={RAIL_ITEMS}
-        activeRailId="students"
-        homeHref="/admin/dashboard"
-        avatarInitials={avatarInitials}
-        pageTitle="Student"
-        sessionLabel={mockCurrentSession}
-        subtitle={admin.institutional_email}
-        profileHref="/admin/profile"
-      >
+      <>
         <Breadcrumbs
           items={[
             { label: "Dashboard", href: "/admin/dashboard" },
@@ -90,79 +130,142 @@ export function StudentDetailPage() {
           ]}
         />
         <p className={styles.notFound}>Student {studentId} was not found.</p>
-      </DashboardShell>
+      </>
     );
   }
 
-  function startEditing() {
-    setFormValue(studentFormValueFromRecord(record!));
-    setEditing(true);
-    setMessage(null);
+  if (loadError) {
+    return <div className={formStyles.errorBanner}>{loadError}</div>;
   }
 
-  function handleSave(e: React.FormEvent) {
+  if (!record) {
+    return <p className={styles.notFound}>Loading student…</p>;
+  }
+
+  async function handleSave(e: React.FormEvent) {
     e.preventDefault();
     if (!formValue || !studentId) return;
-    updateStudentRecord(studentId, formValue);
-    setEditing(false);
-    setMessage("Student record updated.");
+    setSaving(true);
+    setSaveError(null);
+    setFieldErrors({});
+    try {
+      await apiMutate(`/admin/students/${studentId}/`, "PATCH", {
+        person: {
+          first_name: formValue.first_name,
+          last_name: formValue.last_name,
+          father_name: formValue.father_name,
+          gender: formValue.gender,
+          dob: formValue.dob,
+          cnic: formValue.cnic,
+          institutional_email: formValue.institutional_email,
+          personal_email: formValue.personal_email || null,
+          contact_number: formValue.contact_number,
+          religion: formValue.religion || null,
+          address: {
+            country: formValue.address.country,
+            province: formValue.address.province || null,
+            city: formValue.address.city,
+            zipcode: formValue.address.zipcode ? Number(formValue.address.zipcode) : null,
+            street_address: formValue.address.street_address || null,
+          },
+          qualification_set: formValue.qualification_set
+            .filter((q) => q.degree_title.trim() || q.institution.trim())
+            .map((q) => ({
+              degree_title: q.degree_title,
+              education_board: q.education_board || null,
+              passing_year: q.passing_year ? Number(q.passing_year) : null,
+              institution: q.institution,
+              total_marks: q.total_marks ? Number(q.total_marks) : null,
+              obtained_marks: q.obtained_marks ? Number(q.obtained_marks) : null,
+              is_current: q.is_current,
+            })),
+        },
+        program: formValue.program,
+        student_class: formValue.student_class,
+        admission_date: formValue.admission_date,
+        status: formValue.status,
+      });
+
+      if (imageFile) {
+        const form = new FormData();
+        form.append("person.image", imageFile);
+        await apiMutateForm(`/admin/students/${studentId}/`, "PATCH", form);
+      }
+
+      invalidateCache("admin:all-students");
+      navigate(viewPath);
+      showToast("Student record updated.");
+      setRefreshKey((k) => k + 1);
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 401) {
+        navigate("/login", { replace: true });
+        return;
+      }
+      const { banner, fields } = apiFormErrors(err);
+      setSaveError(banner);
+      setFieldErrors(remapListFieldErrors(fields, "person.qualification_set", nonBlankQualificationIndices(formValue.qualification_set)));
+    } finally {
+      setSaving(false);
+    }
   }
 
-  function handleDeleteRequest() {
-    if (!studentId) return;
-    const result = requestStudentDeletion(studentId);
-    setMessage(result.message);
-  }
+  const { matched: personFieldErrors, rest: studentFieldErrors } = splitFieldErrors(fieldErrors, "person");
 
-  const classesForProgram = formValue ? CLASSES.filter((c) => c.program === formValue.program) : [];
   const studentAvatarInitials = `${record.person.first_name[0]}${record.person.last_name[0]}`.toUpperCase();
 
   return (
-    <DashboardShell
-      railItems={RAIL_ITEMS}
-      activeRailId="students"
-      homeHref="/admin/dashboard"
-      avatarInitials={avatarInitials}
-      pageTitle={editing ? "Edit student" : "Student"}
-      sessionLabel={mockCurrentSession}
-      subtitle={admin.institutional_email}
-      profileHref="/admin/profile"
-    >
+    <>
       <Breadcrumbs
-        items={[
-          { label: "Dashboard", href: "/admin/dashboard" },
-          { label: "Students", href: "/admin/students" },
-          { label: `${record.person.first_name} ${record.person.last_name}` },
-        ]}
+        items={
+          editing
+            ? [
+                { label: "Dashboard", href: "/admin/dashboard" },
+                { label: "Students", href: "/admin/students" },
+                { label: `${record.person.first_name} ${record.person.last_name}`, href: viewPath },
+                { label: "Edit" },
+              ]
+            : [
+                { label: "Dashboard", href: "/admin/dashboard" },
+                { label: "Students", href: "/admin/students" },
+                { label: `${record.person.first_name} ${record.person.last_name}` },
+              ]
+        }
       />
-
-      {message && <div className={formStyles.banner}>{message}</div>}
 
       {editing && formValue ? (
         <form className={styles.editCard} onSubmit={handleSave}>
-          <PersonFormFields value={formValue} onChange={setFormValue} isCreate={false} />
+          {saveError && <div className={formStyles.errorBanner}>{saveError}</div>}
+
+          <PersonFormFields
+            value={formValue}
+            onChange={setFormValue}
+            isCreate={false}
+            onImageFile={setImageFile}
+            fieldErrors={personFieldErrors}
+          />
 
           <h3 className={formStyles.sectionTitle}>Enrollment details</h3>
           <div className={formStyles.row}>
-            <div className={formStyles.field}>
+            <div className={formStyles.field} data-invalid={studentFieldErrors.program ? "true" : undefined}>
               <label htmlFor="program">Program</label>
               <select
                 id="program"
                 value={formValue.program}
                 onChange={(e) => {
                   const program = e.target.value;
-                  const firstClass = CLASSES.find((c) => c.program === program);
+                  const firstClass = classes.find((c) => c.program === program);
                   setFormValue({ ...formValue, program, student_class: firstClass?.class_id ?? formValue.student_class });
                 }}
               >
-                {PROGRAMS.map((p) => (
+                {programs.map((p) => (
                   <option key={p.program_id} value={p.program_id}>
                     {p.program_name}
                   </option>
                 ))}
               </select>
+              {studentFieldErrors.program && <span className={formStyles.fieldError}>{studentFieldErrors.program}</span>}
             </div>
-            <div className={formStyles.field}>
+            <div className={formStyles.field} data-invalid={studentFieldErrors.student_class ? "true" : undefined}>
               <label htmlFor="student_class">Class</label>
               <select
                 id="student_class"
@@ -171,12 +274,13 @@ export function StudentDetailPage() {
               >
                 {classesForProgram.map((c) => (
                   <option key={c.class_id} value={c.class_id}>
-                    {classLabel(c.class_id)}
+                    {classLabel(c)}
                   </option>
                 ))}
               </select>
+              {studentFieldErrors.student_class && <span className={formStyles.fieldError}>{studentFieldErrors.student_class}</span>}
             </div>
-            <div className={formStyles.field}>
+            <div className={formStyles.field} data-invalid={studentFieldErrors.status ? "true" : undefined}>
               <label htmlFor="status">Status</label>
               <select
                 id="status"
@@ -189,10 +293,11 @@ export function StudentDetailPage() {
                   </option>
                 ))}
               </select>
+              {studentFieldErrors.status && <span className={formStyles.fieldError}>{studentFieldErrors.status}</span>}
             </div>
           </div>
           <div className={formStyles.row}>
-            <div className={formStyles.field}>
+            <div className={formStyles.field} data-invalid={studentFieldErrors.admission_date ? "true" : undefined}>
               <label htmlFor="admission_date">Admission date</label>
               <input
                 id="admission_date"
@@ -200,14 +305,16 @@ export function StudentDetailPage() {
                 value={formValue.admission_date}
                 onChange={(e) => setFormValue({ ...formValue, admission_date: e.target.value })}
               />
+              <span className={formStyles.hint}>Must fall within the current calendar year (StudentSerializer.validate_admission_date).</span>
+              {studentFieldErrors.admission_date && <span className={formStyles.fieldError}>{studentFieldErrors.admission_date}</span>}
             </div>
           </div>
 
           <div className={formStyles.actions}>
-            <button type="submit" className={formStyles.primaryButton}>
-              Save changes
+            <button type="submit" className={formStyles.primaryButton} disabled={saving}>
+              {saving ? "Saving…" : "Save changes"}
             </button>
-            <button type="button" className={formStyles.secondaryButton} onClick={() => setEditing(false)}>
+            <button type="button" className={formStyles.secondaryButton} onClick={() => navigate(viewPath)} disabled={saving}>
               Cancel
             </button>
           </div>
@@ -215,29 +322,20 @@ export function StudentDetailPage() {
       ) : (
         <>
           <div className={styles.profileCard}>
-            <div className={styles.avatar}>{studentAvatarInitials}</div>
+            <div className={styles.avatar}>{record.person.image ? <img src={record.person.image} alt="" /> : studentAvatarInitials}</div>
             <div className={styles.profileMain}>
               <h1 className={styles.name}>
                 {record.person.first_name} {record.person.last_name}
               </h1>
               <p className={styles.subline}>
-                {record.person.person_id} · {record.program} · {classLabel(record.student_class)}
+                {record.person.person_id} · {record.program} · Class {record.student_class}
               </p>
               <Tag tone={STATUS_TONE[record.status]}>{record.status}</Tag>
-              {record.pendingDeletion && <Tag tone="critical">Deletion pending confirmation</Tag>}
             </div>
             <div className={formStyles.actions}>
-              <button type="button" className={formStyles.secondaryButton} onClick={startEditing}>
+              <Link to={`${viewPath}/edit`} className={formStyles.secondaryButton}>
                 Edit
-              </button>
-              <button
-                type="button"
-                className={formStyles.dangerButton}
-                onClick={handleDeleteRequest}
-                disabled={record.pendingDeletion}
-              >
-                Request deletion
-              </button>
+              </Link>
             </div>
           </div>
 
@@ -286,16 +384,14 @@ export function StudentDetailPage() {
               <p className={styles.empty}>No enrollments.</p>
             )}
           </Panel>
+
+          <p className={formStyles.hint}>
+            StudentRetrieveUpdateAPIView only wires GET/PUT/PATCH — there's no DELETE route for a
+            student record, so this app has no deletion action here (destroy_mixin exists on the
+            view but nothing routes DELETE to it).
+          </p>
         </>
       )}
-    </DashboardShell>
+    </>
   );
 }
-
-const STATUS_TONE: Record<string, StatusTone> = {
-  Active: "good",
-  Graduated: "good",
-  "On Probation": "warning",
-  Frozen: "warning",
-  Dropped: "critical",
-};

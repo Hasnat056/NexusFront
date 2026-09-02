@@ -1,31 +1,23 @@
-import { useState, type FormEvent } from "react";
-import { Link, useParams } from "react-router-dom";
+import { useEffect, useState, type FormEvent } from "react";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { DashboardShell } from "../components/layout/DashboardShell";
-import type { RailNavItem } from "../components/layout/Rail";
-import { IconCalendar, IconGrid, IconPerson, IconScroll, IconTerminal, IconUserCheck } from "../components/icons/Icons";
+import { STUDENT_RAIL_ITEMS } from "../components/layout/studentRailItems";
 import { Breadcrumbs } from "../components/ui/Breadcrumbs";
 import { Panel } from "../components/ui/Panel";
+import { StatTile } from "../components/ui/StatTile";
 import { Tag } from "../components/ui/Tag";
 import { AssessmentCard } from "../components/ui/AssessmentCard";
 import { AttendanceDots } from "../components/ui/AttendanceDots";
+import { useToast } from "../components/ui/ToastContext";
 import type { StatusTone } from "../types/dashboard";
-import type { EnrollmentStatus } from "../types/api";
-import { getStudentEnrollmentById, groupAssessmentsByType, uploadAssessmentSubmission } from "../data/studentEnrollments";
-import { attendancePercentageTone, getStudentAttendanceForEnrollment } from "../data/studentAttendance";
-import { getReviewByEnrollmentId, saveReview } from "../data/studentReviews";
-import { mockStudentDashboardResponse } from "../data/studentDashboard";
+import type { EnrollmentStatus, Review, StudentAttendanceSummary, StudentDashboardResponse, StudentEnrollment } from "../types/api";
+import { groupAssessmentsByType } from "../data/studentEnrollments";
+import { attendancePercentageTone } from "../data/studentAttendance";
+import { apiGet, apiGetAllPages, apiMutate, apiMutateForm } from "../lib/auth";
+import { ApiError, apiErrorMessage } from "../lib/api";
 import formStyles from "../components/ui/Form.module.css";
 import styles from "./PersonDetailPage.module.css";
 import pageStyles from "./StudentEnrollmentDetailPage.module.css";
-
-const RAIL_ITEMS: RailNavItem[] = [
-  { id: "dashboard", label: "Dashboard", icon: IconGrid, href: "/student/dashboard" },
-  { id: "enrollments", label: "Enrollments", icon: IconUserCheck, href: "/student/enrollments" },
-  { id: "transcript", label: "Transcript", icon: IconScroll, href: "/student/transcript" },
-  { id: "attendance", label: "Attendance", icon: IconCalendar, href: "/student/attendance" },
-  { id: "profile", label: "Profile", icon: IconPerson, href: "/student/profile" },
-  { id: "scratchpad", label: "Scratchpad", icon: IconTerminal, href: "/student/scratchpad" },
-];
 
 const ENROLLMENT_STATUS_TONE: Record<EnrollmentStatus, StatusTone> = {
   Active: "good",
@@ -39,34 +31,84 @@ function formatDateTime(iso: string): string {
 }
 
 export function StudentEnrollmentDetailPage() {
+  const navigate = useNavigate();
   const { id } = useParams<{ id: string }>();
   const enrollmentId = id ? Number(id) : NaN;
-  const [, setTick] = useState(0);
+  const { showToast } = useToast();
+
+  const [dashboard, setDashboard] = useState<StudentDashboardResponse | null>(null);
+  const [enrollment, setEnrollment] = useState<StudentEnrollment | null>(null);
+  const [attendance, setAttendance] = useState<StudentAttendanceSummary | null>(null);
+  const [review, setReview] = useState<Review | null>(null);
+  const [notFound, setNotFound] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [refreshKey, setRefreshKey] = useState(0);
+
   const [error, setError] = useState<string | null>(null);
-  const [message, setMessage] = useState<string | null>(null);
   const [pendingFiles, setPendingFiles] = useState<Record<number, File | null>>({});
-  const initialReview = getReviewByEnrollmentId(enrollmentId);
-  const [reviewText, setReviewText] = useState(initialReview?.review_text ?? "");
-  const [reviewRating, setReviewRating] = useState(initialReview?.rating ?? 5);
+  const [reviewText, setReviewText] = useState("");
+  const [reviewRating, setReviewRating] = useState(5);
+  const [savingReview, setSavingReview] = useState(false);
 
-  const dashboard = mockStudentDashboardResponse;
-  const avatarInitials = `${dashboard.first_name[0]}${dashboard.last_name[0]}`.toUpperCase();
+  useEffect(() => {
+    let cancelled = false;
+    Promise.all([
+      apiGet<StudentDashboardResponse>("/student/dashboard/"),
+      apiGet<StudentEnrollment>(`/student/enrollments/${enrollmentId}/`),
+      apiGet<StudentAttendanceSummary>(`/student/attendance/${enrollmentId}/`),
+    ])
+      .then(([dashboardRes, enrollmentRes, attendanceRes]) => {
+        if (cancelled) return;
+        setDashboard(dashboardRes);
+        setEnrollment(enrollmentRes);
+        setAttendance(attendanceRes);
+        // No GET-by-enrollment for a review — list this student's own and find the one for this
+        // enrollment (ReviewListAPIView.get_queryset filters by student_id only).
+        return apiGetAllPages<Review>(`/student/${dashboardRes.student_id}/enrollments/reviews/`).then((reviews) => {
+          if (cancelled) return;
+          const existing = reviews.find((r) => r.enrollment === enrollmentId) ?? null;
+          setReview(existing);
+          setReviewText(existing?.review_text ?? "");
+          setReviewRating(existing ? Number(existing.rating) : 5);
+        });
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        if (err instanceof ApiError && err.status === 401) {
+          navigate("/login", { replace: true });
+          return;
+        }
+        if (err instanceof ApiError && err.status === 404) {
+          setNotFound(true);
+          return;
+        }
+        setLoadError(apiErrorMessage(err));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [navigate, enrollmentId, refreshKey]);
 
-  const enrollment = getStudentEnrollmentById(enrollmentId);
+  const avatarInitials = dashboard ? `${dashboard.first_name[0]}${dashboard.last_name[0]}`.toUpperCase() : "—";
 
-  function refresh() {
-    setTick((t) => t + 1);
+  if (loadError) {
+    return (
+      <DashboardShell railItems={STUDENT_RAIL_ITEMS} activeRailId="enrollments" homeHref="/student/dashboard" profileHref="/student/profile" avatarInitials={avatarInitials} pageTitle="Enrollment" subtitle="">
+        <div className={formStyles.errorBanner}>{loadError}</div>
+      </DashboardShell>
+    );
   }
 
-  if (!enrollment) {
+  if (notFound) {
     return (
       <DashboardShell
-        railItems={RAIL_ITEMS}
-        activeRailId="dashboard"
+        railItems={STUDENT_RAIL_ITEMS}
+        activeRailId="enrollments"
         homeHref="/student/dashboard"
+        profileHref="/student/profile"
         avatarInitials={avatarInitials}
         pageTitle="Enrollment"
-        subtitle={dashboard.institutional_email}
+        subtitle={dashboard?.institutional_email ?? ""}
       >
         <Breadcrumbs
           items={[
@@ -80,50 +122,96 @@ export function StudentEnrollmentDetailPage() {
     );
   }
 
+  if (!dashboard || !enrollment) {
+    return (
+      <DashboardShell railItems={STUDENT_RAIL_ITEMS} activeRailId="enrollments" homeHref="/student/dashboard" profileHref="/student/profile" avatarInitials={avatarInitials} pageTitle="Enrollment" subtitle="">
+        <p className={styles.notFound}>Loading enrollment…</p>
+      </DashboardShell>
+    );
+  }
+
   const { allocation_details } = enrollment;
   const course = allocation_details.course_details;
   const faculty = "first_name" in allocation_details.faculty_details ? allocation_details.faculty_details : null;
-  const review = getReviewByEnrollmentId(enrollmentId);
   const gradedCount = allocation_details.assessment_set.filter((a) => a.assessmentchecked_set?.obtained != null).length;
   const assessmentGroups = groupAssessmentsByType(allocation_details.assessment_set);
-  const attendance = getStudentAttendanceForEnrollment(enrollmentId);
 
-  function handleUpload(assessmentId: number) {
+  async function handleUpload(assessmentId: number) {
     const file = pendingFiles[assessmentId];
     if (!file) {
       setError("Choose a file first.");
       return;
     }
-    const result = uploadAssessmentSubmission(enrollmentId, assessmentId, file);
-    if (typeof result === "string") {
-      setError(result);
-      setMessage(null);
+    const assessment = allocation_details.assessment_set.find((a) => a.assessment_id === assessmentId);
+    const checkedId = assessment?.assessmentchecked_set?.id;
+    if (!checkedId) {
+      setError("Submission record not found.");
       return;
     }
     setError(null);
-    setMessage("Submission uploaded.");
-    setPendingFiles((prev) => ({ ...prev, [assessmentId]: null }));
-    refresh();
+    try {
+      const form = new FormData();
+      form.append("student_upload", file);
+      await apiMutateForm(
+        `/student/enrollments/${enrollmentId}/assessments/${assessmentId}/file-upload/${checkedId}/`,
+        "PATCH",
+        form,
+      );
+      showToast("Submission uploaded.");
+      setPendingFiles((prev) => ({ ...prev, [assessmentId]: null }));
+      setRefreshKey((k) => k + 1);
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 401) {
+        navigate("/login", { replace: true });
+        return;
+      }
+      setError(apiErrorMessage(err));
+    }
   }
 
-  function handleSaveReview(e: FormEvent) {
+  async function handleSaveReview(e: FormEvent) {
     e.preventDefault();
     if (!reviewText.trim()) {
       setError("Review text can't be empty.");
       return;
     }
-    saveReview(enrollmentId, reviewText, reviewRating);
+    setSavingReview(true);
     setError(null);
-    setMessage(review ? "Review updated." : "Review submitted.");
-    refresh();
+    try {
+      if (review) {
+        await apiMutate<Review>(
+          `/student/${dashboard!.student_id}/enrollments/${enrollmentId}/reviews/${review.review_id}/`,
+          "PATCH",
+          { review_text: reviewText, rating: reviewRating },
+        );
+        showToast("Review updated.");
+      } else {
+        await apiMutate<Review>(`/student/${dashboard!.student_id}/enrollments/${enrollmentId}/reviews/`, "POST", {
+          review_text: reviewText,
+          rating: reviewRating,
+        });
+        showToast("Review submitted.");
+      }
+      setRefreshKey((k) => k + 1);
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 401) {
+        navigate("/login", { replace: true });
+        return;
+      }
+      setError(apiErrorMessage(err));
+    } finally {
+      setSavingReview(false);
+    }
   }
 
   return (
     <DashboardShell
-      railItems={RAIL_ITEMS}
-      activeRailId="dashboard"
+      railItems={STUDENT_RAIL_ITEMS}
+      activeRailId="enrollments"
       homeHref="/student/dashboard"
+      profileHref="/student/profile"
       avatarInitials={avatarInitials}
+      avatarSrc={dashboard.image}
       pageTitle={course?.course_name ?? course?.course_code ?? "Enrollment"}
       subtitle={`${allocation_details.session} · ${dashboard.institutional_email}`}
     >
@@ -135,7 +223,6 @@ export function StudentEnrollmentDetailPage() {
         ]}
       />
 
-      {message && <div className={formStyles.banner}>{message}</div>}
       {error && <div className={formStyles.errorBanner}>{error}</div>}
 
       <div className={styles.profileCard}>
@@ -166,6 +253,29 @@ export function StudentEnrollmentDetailPage() {
           <p className={styles.empty}>No lectures recorded yet.</p>
         )}
       </Panel>
+
+      {enrollment.status === "Completed" && (
+        <Panel title="Result">
+          {enrollment.result?.course_gpa != null ? (
+            <div className={styles.panelBody}>
+              <div className={pageStyles.resultStats}>
+                <StatTile id="course-gpa" label="Course GPA" value={enrollment.result.course_gpa.toFixed(2)} />
+                {enrollment.result.obtained_marks != null && (
+                  <StatTile id="obtained-marks" label="Marks obtained" value={`${enrollment.result.obtained_marks.toFixed(2)} / 100`} />
+                )}
+              </div>
+              <Link
+                to={`/student/transcript/${allocation_details.semester_id}?course=${enrollmentId}`}
+                className={formStyles.linkButton}
+              >
+                View semester result →
+              </Link>
+            </div>
+          ) : (
+            <p className={styles.empty}>Result not yet calculated for this course.</p>
+          )}
+        </Panel>
+      )}
 
       <Panel title="Assessments" hint={`${gradedCount}/${allocation_details.assessment_set.length} graded`}>
         {assessmentGroups.length > 0 ? (
@@ -221,8 +331,8 @@ export function StudentEnrollmentDetailPage() {
           </div>
           {review && <span className={formStyles.hint}>Last updated {formatDateTime(review.timestamp)}.</span>}
           <div className={formStyles.actions}>
-            <button type="submit" className={formStyles.primaryButton}>
-              {review ? "Update review" : "Submit review"}
+            <button type="submit" className={formStyles.primaryButton} disabled={savingReview}>
+              {savingReview ? "Saving…" : review ? "Update review" : "Submit review"}
             </button>
           </div>
         </form>

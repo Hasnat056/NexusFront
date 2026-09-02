@@ -1,6 +1,6 @@
 import autoTable from "jspdf-autotable";
 import type { CourseResultRow } from "../../data/studentResults";
-import type { StudentTranscriptRow } from "../../data/studentTranscript";
+import type { SemesterRow } from "../../data/studentTranscript";
 import {
   COLOR,
   CONTENT_W,
@@ -21,7 +21,7 @@ export interface TranscriptPdfData {
   studentClass: string;
   studentImageDataUrl: string | null;
   avatarInitials: string;
-  transcript: StudentTranscriptRow[];
+  transcript: SemesterRow[];
   results: CourseResultRow[];
   totalCredits: number;
   cumulativeGpa: number;
@@ -55,7 +55,7 @@ export function downloadTranscriptPdf(data: TranscriptPdfData): void {
 
   for (const row of data.transcript) {
     const courses = data.results.filter((c) => c.semesterId === row.semester);
-    drawSemesterHeading(doc, y + 2, `${row.session} · Semester ${row.semester}`, `GPA ${row.semester_gpa.toFixed(2)}`);
+    drawSemesterHeading(doc, y + 2, `${row.session} · Semester ${row.semester}`, `GPA ${Number(row.semester_gpa).toFixed(2)}`);
     autoTable(doc, {
       startY: y + 4,
       margin: { left: MARGIN, right: MARGIN },
@@ -68,7 +68,7 @@ export function downloadTranscriptPdf(data: TranscriptPdfData): void {
         2: { halign: "right", cellWidth: 28 },
       },
       head: [["COURSE", "CREDITS", "GRADE GPA"]],
-      body: courses.map((c) => [`${c.courseName}  ${c.courseCode}`, String(c.creditHours), c.courseGpa.toFixed(2)]),
+      body: courses.map((c) => [`${c.courseName}  ${c.courseCode}`, String(c.creditHours), c.courseGpa != null ? c.courseGpa.toFixed(2) : "—"]),
     });
     y = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 6;
   }

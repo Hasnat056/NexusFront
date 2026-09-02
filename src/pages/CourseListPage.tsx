@@ -1,36 +1,25 @@
-import { useMemo, useState } from "react";
-import { Link } from "react-router-dom";
-import { DashboardShell } from "../components/layout/DashboardShell";
-import type { RailNavItem } from "../components/layout/Rail";
-import { IconScroll, IconHourglass, IconInbox, IconBars, IconBook, IconBuilding, IconCalendar, IconClipboard, IconGraduationCap, IconLayers, IconGrid, IconPeople, IconPerson, IconUserCheck } from "../components/icons/Icons";
+import { useEffect, useMemo, useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
+import { useAdminPageConfig } from "../components/layout/AdminShellContext";
 import { Panel } from "../components/ui/Panel";
 import { Table, type Column } from "../components/ui/Table";
 import { FilterBar } from "../components/ui/FilterBar";
 import { Tag } from "../components/ui/Tag";
-import { coursePrefixes, mockCourses, selectCourseListRows } from "../data/courseDirectory";
-import { mockAdminDashboardResponse } from "../data/adminDashboard";
-import { mockCurrentSession } from "../data/session";
-import type { CourseListRow } from "../types/dashboard";
+import { apiGetAllPages, cached } from "../lib/auth";
+import { ApiError, apiErrorMessage } from "../lib/api";
+import type { AdminCourse } from "../types/api";
 import styles from "./FacultyListPage.module.css";
 
-const RAIL_ITEMS: RailNavItem[] = [
-  { id: "dashboard", label: "Dashboard", icon: IconGrid, href: "/admin/dashboard" },
-  { id: "faculty", label: "Faculty", icon: IconPerson, href: "/admin/faculty" },
-  { id: "students", label: "Students", icon: IconPeople, href: "/admin/students" },
-  { id: "departments", label: "Departments", icon: IconBuilding, href: "/admin/departments" },
-  { id: "programs", label: "Programs", icon: IconLayers, href: "/admin/programs" },
-  { id: "courses", label: "Courses", icon: IconBook, href: "/admin/courses" },
-  { id: "classes", label: "Classes", icon: IconGraduationCap, href: "/admin/classes" },
-  { id: "allocations", label: "Allocations", icon: IconClipboard, href: "/admin/allocations" },
-  { id: "enrollments", label: "Enrollments", icon: IconUserCheck, href: "/admin/enrollments" },
-  { id: "sessions", label: "Sessions", icon: IconCalendar, href: "/admin/sessions" },
-  { id: "semesters", label: "Semesters", icon: IconHourglass, href: "/admin/semesters" },
-  { id: "transcripts", label: "Transcripts", icon: IconScroll, href: "/admin/transcripts" },
-  { id: "requests", label: "Requests", icon: IconInbox, href: "/admin/requests" },
-  { id: "reports", label: "Reports", icon: IconBars },
-];
+interface CourseRow {
+  courseCode: string;
+  courseName: string;
+  creditHours: number;
+  lab: boolean;
+  prerequisite: string | null;
+  detailHref: string;
+}
 
-const columns: Column<CourseListRow>[] = [
+const columns: Column<CourseRow>[] = [
   { key: "courseCode", header: "Course code", render: (row) => row.courseCode },
   {
     key: "name",
@@ -47,37 +36,65 @@ const columns: Column<CourseListRow>[] = [
 ];
 
 export function CourseListPage() {
-  const admin = mockAdminDashboardResponse.admin;
-  const avatarInitials = `${admin.first_name[0]}${admin.last_name[0]}`.toUpperCase();
+  useAdminPageConfig("Courses");
+  const navigate = useNavigate();
+  const [courses, setCourses] = useState<AdminCourse[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [prefix, setPrefix] = useState("");
   const [lab, setLab] = useState("");
 
-  const prefixes = useMemo(() => coursePrefixes(mockCourses), []);
+  useEffect(() => {
+    let cancelled = false;
+    cached("admin:courses", () => apiGetAllPages<AdminCourse>("/admin/courses/"))
+      .then((res) => {
+        if (!cancelled) setCourses(res);
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        if (err instanceof ApiError && err.status === 401) {
+          navigate("/login", { replace: true });
+          return;
+        }
+        setError(apiErrorMessage(err));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [navigate]);
 
-  const rows = useMemo(() => {
-    return selectCourseListRows(mockCourses).filter((row) => {
-      if (prefix && !row.courseCode.startsWith(`${prefix}-`)) return false;
-      if (lab && String(row.lab) !== lab) return false;
-      if (search) {
-        const needle = search.toLowerCase();
-        if (!row.courseCode.toLowerCase().includes(needle) && !row.courseName.toLowerCase().includes(needle)) return false;
-      }
-      return true;
-    });
-  }, [search, prefix, lab]);
+  const prefixes = useMemo(
+    () => Array.from(new Set((courses ?? []).map((c) => c.course_code.split("-")[0]))).sort(),
+    [courses],
+  );
+
+  const rows: CourseRow[] = useMemo(() => {
+    return (courses ?? [])
+      .map((c) => ({
+        courseCode: c.course_code,
+        courseName: c.course_name,
+        creditHours: c.credit_hours,
+        lab: c.lab,
+        prerequisite: c.pre_requisite,
+        detailHref: `/admin/courses/${c.course_code}`,
+      }))
+      .filter((row) => {
+        if (prefix && !row.courseCode.startsWith(`${prefix}-`)) return false;
+        if (lab && String(row.lab) !== lab) return false;
+        if (search) {
+          const needle = search.toLowerCase();
+          if (!row.courseCode.toLowerCase().includes(needle) && !row.courseName.toLowerCase().includes(needle)) return false;
+        }
+        return true;
+      });
+  }, [courses, prefix, lab, search]);
+
+  if (error) {
+    return <div className={styles.empty}>{error}</div>;
+  }
 
   return (
-    <DashboardShell
-      railItems={RAIL_ITEMS}
-      activeRailId="courses"
-      homeHref="/admin/dashboard"
-      avatarInitials={avatarInitials}
-      pageTitle="Courses"
-      sessionLabel={mockCurrentSession}
-      subtitle={admin.institutional_email}
-      profileHref="/admin/profile"
-    >
+    <>
       <FilterBar
         searchValue={search}
         onSearchChange={setSearch}
@@ -105,13 +122,11 @@ export function CourseListPage() {
         addLabel="+ New course"
       />
 
-      <Panel title="Courses" hint={`${rows.length} of ${mockCourses.length}`}>
-        {rows.length > 0 ? (
-          <Table columns={columns} rows={rows} rowKey={(row) => row.courseCode} />
-        ) : (
-          <p className={styles.empty}>No courses match these filters.</p>
-        )}
+      <Panel title="Courses" hint={courses ? `${rows.length} of ${courses.length}` : undefined}>
+        {!courses && <p className={styles.empty}>Loading courses…</p>}
+        {courses && rows.length > 0 && <Table columns={columns} rows={rows} rowKey={(row) => row.courseCode} />}
+        {courses && rows.length === 0 && <p className={styles.empty}>No courses match these filters.</p>}
       </Panel>
-    </DashboardShell>
+    </>
   );
 }

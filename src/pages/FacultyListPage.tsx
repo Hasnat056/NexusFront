@@ -1,35 +1,18 @@
-import { useMemo, useState } from "react";
-import { DashboardShell } from "../components/layout/DashboardShell";
-import type { RailNavItem } from "../components/layout/Rail";
-import { IconScroll, IconHourglass, IconInbox, IconBars, IconBook, IconBuilding, IconCalendar, IconClipboard, IconGraduationCap, IconLayers, IconGrid, IconPeople, IconPerson, IconUserCheck } from "../components/icons/Icons";
+import { useEffect, useRef, useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
+import { useAdminPageConfig } from "../components/layout/AdminShellContext";
 import { Panel } from "../components/ui/Panel";
 import { Table, type Column } from "../components/ui/Table";
 import { FilterBar } from "../components/ui/FilterBar";
 import { Avatar } from "../components/ui/Avatar";
-import { DESIGNATIONS, mockFacultyDirectory, selectFacultyListRows } from "../data/facultyDirectory";
-import { DEPARTMENTS } from "../data/academicStructure";
-import { mockAdminDashboardResponse } from "../data/adminDashboard";
-import { mockCurrentSession } from "../data/session";
+import { DESIGNATIONS, selectFacultyListRows } from "../data/facultyDirectory";
 import type { FacultyListRow } from "../types/dashboard";
-import { Link } from "react-router-dom";
+import type { AdminDepartment, AdminFacultyListResponse } from "../types/api";
+import { apiGet, apiGetAllPages, cached } from "../lib/auth";
+import { ApiError, apiErrorMessage } from "../lib/api";
+import { useDebouncedValue } from "../hooks/useDebouncedValue";
+import formStyles from "../components/ui/Form.module.css";
 import styles from "./FacultyListPage.module.css";
-
-const RAIL_ITEMS: RailNavItem[] = [
-  { id: "dashboard", label: "Dashboard", icon: IconGrid, href: "/admin/dashboard" },
-  { id: "faculty", label: "Faculty", icon: IconPerson, href: "/admin/faculty" },
-  { id: "students", label: "Students", icon: IconPeople, href: "/admin/students" },
-  { id: "departments", label: "Departments", icon: IconBuilding, href: "/admin/departments" },
-  { id: "programs", label: "Programs", icon: IconLayers, href: "/admin/programs" },
-  { id: "courses", label: "Courses", icon: IconBook, href: "/admin/courses" },
-  { id: "classes", label: "Classes", icon: IconGraduationCap, href: "/admin/classes" },
-  { id: "allocations", label: "Allocations", icon: IconClipboard, href: "/admin/allocations" },
-  { id: "enrollments", label: "Enrollments", icon: IconUserCheck, href: "/admin/enrollments" },
-  { id: "sessions", label: "Sessions", icon: IconCalendar, href: "/admin/sessions" },
-  { id: "semesters", label: "Semesters", icon: IconHourglass, href: "/admin/semesters" },
-  { id: "transcripts", label: "Transcripts", icon: IconScroll, href: "/admin/transcripts" },
-  { id: "requests", label: "Requests", icon: IconInbox, href: "/admin/requests" },
-  { id: "reports", label: "Reports", icon: IconBars },
-];
 
 const columns: Column<FacultyListRow>[] = [
   {
@@ -37,7 +20,15 @@ const columns: Column<FacultyListRow>[] = [
     header: "",
     render: (row) => <Avatar src={row.image} name={row.name} />,
   },
-  { key: "employeeId", header: "Employee ID", render: (row) => row.employeeId },
+  {
+    key: "employeeId",
+    header: "Employee ID",
+    render: (row) => (
+      <Link to={row.detailHref} className={styles.nameLink}>
+        {row.employeeId}
+      </Link>
+    ),
+  },
   {
     key: "name",
     header: "Full name",
@@ -52,36 +43,83 @@ const columns: Column<FacultyListRow>[] = [
   { key: "email", header: "Email", render: (row) => row.email },
 ];
 
+const PAGE_SIZE = 10;
+
 export function FacultyListPage() {
-  const admin = mockAdminDashboardResponse.admin;
-  const avatarInitials = `${admin.first_name[0]}${admin.last_name[0]}`.toUpperCase();
+  const navigate = useNavigate();
+  useAdminPageConfig("Faculty directory");
+  const [departments, setDepartments] = useState<AdminDepartment[]>([]);
+
   const [search, setSearch] = useState("");
+  const debouncedSearch = useDebouncedValue(search, 300);
   const [department, setDepartment] = useState("");
   const [designation, setDesignation] = useState("");
+  const [page, setPage] = useState(1);
 
-  const rows = useMemo(() => {
-    return selectFacultyListRows(mockFacultyDirectory).filter((row) => {
-      if (department && row.department !== department) return false;
-      if (designation && row.designation !== designation) return false;
-      if (search) {
-        const needle = search.toLowerCase();
-        if (!row.name.toLowerCase().includes(needle) && !row.email.toLowerCase().includes(needle)) return false;
+  const [data, setData] = useState<AdminFacultyListResponse | null>(null);
+  const [listError, setListError] = useState<string | null>(null);
+
+  // The department list (for the filter dropdown) is small and shared across
+  // every page that needs it — cached, so this only ever fetches once.
+  useEffect(() => {
+    let cancelled = false;
+    cached("admin:departments", () => apiGetAllPages<AdminDepartment>("/admin/departments/"))
+      .then((res) => {
+        if (!cancelled) setDepartments(res);
+      })
+      .catch(() => {
+        // Non-fatal: the dropdown just stays empty (only "All departments") if this fails.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Any filter change should restart pagination at page 1. Tracked via a ref
+  // (rather than a separate effect that calls setPage) so a filter change
+  // doesn't fire one fetch for the old page and a second for the reset page.
+  const filterKey = `${debouncedSearch}|${department}|${designation}`;
+  const prevFilterKey = useRef(filterKey);
+
+  useEffect(() => {
+    if (filterKey !== prevFilterKey.current) {
+      prevFilterKey.current = filterKey;
+      if (page !== 1) {
+        setPage(1);
+        return;
       }
-      return true;
-    });
-  }, [search, department, designation]);
+    }
+
+    let cancelled = false;
+    const params = new URLSearchParams();
+    if (debouncedSearch.trim()) params.set("search", debouncedSearch.trim());
+    if (department) params.set("department", department);
+    if (designation) params.set("designation", designation);
+    if (page > 1) params.set("page", String(page));
+    const qs = params.toString();
+
+    apiGet<AdminFacultyListResponse>(`/admin/faculty/${qs ? `?${qs}` : ""}`)
+      .then((res) => {
+        if (!cancelled) setData(res);
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        if (err instanceof ApiError && err.status === 401) {
+          navigate("/login", { replace: true });
+          return;
+        }
+        setListError(apiErrorMessage(err));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [filterKey, debouncedSearch, department, designation, page, navigate]);
+
+  const rows = data ? selectFacultyListRows(data.results) : [];
+  const totalPages = data ? Math.max(1, Math.ceil(data.count / PAGE_SIZE)) : 1;
 
   return (
-    <DashboardShell
-      railItems={RAIL_ITEMS}
-      activeRailId="faculty"
-      homeHref="/admin/dashboard"
-      avatarInitials={avatarInitials}
-      pageTitle="Faculty directory"
-      sessionLabel={mockCurrentSession}
-      subtitle={admin.institutional_email}
-      profileHref="/admin/profile"
-    >
+    <>
       <FilterBar
         searchValue={search}
         onSearchChange={setSearch}
@@ -92,7 +130,7 @@ export function FacultyListPage() {
             value: department,
             onChange: setDepartment,
             placeholder: "All departments",
-            options: DEPARTMENTS.map((d) => ({ value: d.department_id, label: d.department_name })),
+            options: departments.map((d) => ({ value: d.department_id, label: d.department_name })),
           },
           {
             id: "designation",
@@ -104,17 +142,37 @@ export function FacultyListPage() {
         ]}
         addHref="/admin/faculty/new"
         addLabel="+ New faculty"
-        secondaryHref="/admin/bulk?type=faculty"
-        secondaryLabel="Bulk import"
       />
 
-      <Panel title="Faculty" hint={`${rows.length} of ${mockFacultyDirectory.length}`}>
-        {rows.length > 0 ? (
-          <Table columns={columns} rows={rows} rowKey={(row) => row.employeeId} />
-        ) : (
-          <p className={styles.empty}>No faculty match these filters.</p>
+      <Panel title="Faculty" hint={data ? `${data.count} total` : undefined}>
+        {listError && <div className={formStyles.errorBanner}>{listError}</div>}
+        {!listError && !data && <p className={styles.empty}>Loading faculty…</p>}
+        {!listError && rows.length > 0 && <Table columns={columns} rows={rows} rowKey={(row) => row.employeeId} />}
+        {!listError && data && rows.length === 0 && <p className={styles.empty}>No faculty match these filters.</p>}
+        {!listError && data && (
+          <div className={styles.pager}>
+            <span className={styles.pagerInfo}>
+              Page {page} of {totalPages}
+            </span>
+            <button
+              type="button"
+              className={styles.pagerButton}
+              onClick={() => setPage((p) => p - 1)}
+              disabled={!data.previous}
+            >
+              Prev
+            </button>
+            <button
+              type="button"
+              className={styles.pagerButton}
+              onClick={() => setPage((p) => p + 1)}
+              disabled={!data.next}
+            >
+              Next
+            </button>
+          </div>
         )}
       </Panel>
-    </DashboardShell>
+    </>
   );
 }

@@ -1,6 +1,5 @@
-import type { AdminStudentDetail, Gender, StudentStatus } from "../types/api";
+import type { AdminStudentDetail, AdminStudentListItem, Gender, StudentStatus } from "../types/api";
 import type { PersonFormShape, StatusTone, StudentListRow } from "../types/dashboard";
-import { classLabel } from "./academicStructure";
 import { qualificationFormItemsToWire, qualificationsToFormItems } from "./qualificationForm";
 import { createChangeRequest } from "./changeRequests";
 
@@ -37,6 +36,7 @@ export const mockStudentDirectory: MockStudentRecord[] = [
     },
     program: "CS-BS",
     student_class: 1,
+    student_class_display: "CS-BS-2023",
     admission_date: "2023-09-01",
     status: "Active",
     enrollment_set: [
@@ -65,6 +65,7 @@ export const mockStudentDirectory: MockStudentRecord[] = [
     },
     program: "EE-BS",
     student_class: 4,
+    student_class_display: "EE-BS-2024",
     admission_date: "2024-09-01",
     status: "Active",
     enrollment_set: [],
@@ -90,6 +91,7 @@ export const mockStudentDirectory: MockStudentRecord[] = [
     },
     program: "CS-BS",
     student_class: 1,
+    student_class_display: "CS-BS-2022",
     admission_date: "2022-09-01",
     status: "On Probation",
     enrollment_set: [],
@@ -108,13 +110,13 @@ const STATUS_TONE: Record<StudentStatus, StatusTone> = {
   Dropped: "critical",
 };
 
-export function selectStudentListRows(records: MockStudentRecord[]): StudentListRow[] {
+export function selectStudentListRows(records: AdminStudentListItem[]): StudentListRow[] {
   return records.map((s) => ({
     studentId: s.person.person_id,
     name: `${s.person.first_name} ${s.person.last_name}`,
     image: s.person.image,
     program: s.program,
-    studentClass: classLabel(s.student_class),
+    studentClass: s.student_class_display,
     status: { label: s.status, tone: STATUS_TONE[s.status] },
     admissionDate: s.admission_date,
     email: s.person.institutional_email,
@@ -152,8 +154,8 @@ export function emptyStudentFormValue(): StudentFormValue {
     confirm_password: "",
     address: { country: "Pakistan", province: "", city: "", zipcode: "", street_address: "" },
     qualification_set: [],
-    program: "CS-BS",
-    student_class: 1,
+    program: "",
+    student_class: 0,
     admission_date: "",
     status: "Active",
   };
@@ -226,6 +228,7 @@ export function createStudentRecord(input: StudentFormValue): MockStudentRecord 
     },
     program: input.program,
     student_class: input.student_class,
+    student_class_display: `${input.program}-${year}`,
     admission_date: input.admission_date,
     status: input.status,
     enrollment_set: [],

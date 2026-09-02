@@ -25,6 +25,16 @@ export function qualificationsToFormItems(qualifications: PersonQualification[] 
   }));
 }
 
+/** The UI row index of each item that survives qualificationFormItemsToWire's blank-row filter,
+ * in submission order — position k in this array is which UI row the backend's k'th
+ * qualification_set error object actually belongs to (see remapListFieldErrors, lib/api.ts). */
+export function nonBlankQualificationIndices(items: QualificationFormItem[]): number[] {
+  return items.reduce<number[]>((indices, q, i) => {
+    if (q.degree_title.trim() || q.institution.trim()) indices.push(i);
+    return indices;
+  }, []);
+}
+
 export function qualificationFormItemsToWire(items: QualificationFormItem[]): PersonQualification[] {
   return items
     .filter((q) => q.degree_title.trim() || q.institution.trim())

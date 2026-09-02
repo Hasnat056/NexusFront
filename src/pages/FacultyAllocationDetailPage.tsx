@@ -1,8 +1,7 @@
-import { useState } from "react";
-import { useParams } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { useNavigate, useParams } from "react-router-dom";
 import { DashboardShell } from "../components/layout/DashboardShell";
-import type { RailNavItem } from "../components/layout/Rail";
-import { IconBook, IconGrid, IconPerson } from "../components/icons/Icons";
+import { FACULTY_RAIL_ITEMS } from "../components/layout/facultyRailItems";
 import { Breadcrumbs } from "../components/ui/Breadcrumbs";
 import { CourseCard } from "../components/ui/CourseCard";
 import { Panel } from "../components/ui/Panel";
@@ -11,18 +10,11 @@ import { Table } from "../components/ui/Table";
 import { Tag } from "../components/ui/Tag";
 import { ResultsDistributionChart } from "../components/charts/ResultsDistributionChart";
 import type { StatusTone } from "../types/dashboard";
-import type { EnrollmentStatus } from "../types/api";
-import { countUngradedForAllocation, getFacultyAllocationDetail } from "../data/facultyAllocationDetail";
-import { requestResultCalculation } from "../data/facultyRequests";
-import { mockFacultyDashboardResponse } from "../data/facultyDashboard";
+import type { Assessment, EnrollmentStatus, FacultyAllocationDetail, FacultyDashboardResponse } from "../types/api";
+import { apiGet } from "../lib/auth";
+import { ApiError, apiErrorMessage } from "../lib/api";
 import formStyles from "../components/ui/Form.module.css";
 import styles from "./PersonDetailPage.module.css";
-
-const RAIL_ITEMS: RailNavItem[] = [
-  { id: "dashboard", label: "Dashboard", icon: IconGrid, href: "/faculty/dashboard" },
-  { id: "allocations", label: "Allocations", icon: IconBook, href: "/faculty/allocations" },
-  { id: "profile", label: "Profile", icon: IconPerson, href: "/faculty/profile" },
-];
 
 const ALLOCATION_STATUS_TONE: Record<string, StatusTone> = {
   Ongoing: "good",
@@ -39,30 +31,99 @@ const ENROLLMENT_STATUS_TONE: Record<EnrollmentStatus, StatusTone> = {
 };
 
 export function FacultyAllocationDetailPage() {
+  const navigate = useNavigate();
   const { id } = useParams<{ id: string }>();
   const allocationId = id ? Number(id) : NaN;
-  const [, setTick] = useState(0);
+  const [dashboard, setDashboard] = useState<FacultyDashboardResponse | null>(null);
+  const [detail, setDetail] = useState<FacultyAllocationDetail | null>(null);
+  const [notFound, setNotFound] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [requesting, setRequesting] = useState(false);
+  // AssessmentSerializer.__init__ (FacultyModule/serializers.py) only keeps assessmentchecked_set
+  // when serializing a single Assessment — assessment_set nested under this allocation is a
+  // many=True context, so the field is always absent there. Fetch each assessment's own detail to
+  // compute how many marks are still ungraded.
+  const [ungraded, setUngraded] = useState(0);
 
-  const dashboard = mockFacultyDashboardResponse;
-  const avatarInitials = `${dashboard.faculty.first_name[0]}${dashboard.faculty.last_name[0]}`.toUpperCase();
+  useEffect(() => {
+    let cancelled = false;
+    Promise.all([
+      apiGet<FacultyDashboardResponse>("/faculty/dashboard/"),
+      apiGet<FacultyAllocationDetail>(`/faculty/allocations/${allocationId}/`),
+    ])
+      .then(([dashboardRes, detailRes]) => {
+        if (cancelled) return;
+        setDashboard(dashboardRes);
+        setDetail(detailRes);
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        if (err instanceof ApiError && err.status === 401) {
+          navigate("/login", { replace: true });
+          return;
+        }
+        if (err instanceof ApiError && err.status === 404) {
+          setNotFound(true);
+          return;
+        }
+        setLoadError(apiErrorMessage(err));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [navigate, allocationId]);
 
-  const detail = getFacultyAllocationDetail(allocationId);
+  useEffect(() => {
+    if (!detail) return;
+    let cancelled = false;
+    Promise.all(
+      detail.assessment_set.map((a) =>
+        apiGet<Assessment>(`/faculty/allocations/${allocationId}/assessments/${a.assessment_id}/`),
+      ),
+    )
+      .then((results) => {
+        if (cancelled) return;
+        setUngraded(results.reduce((sum, a) => sum + a.assessmentchecked_set.filter((c) => c.obtained === null).length, 0));
+      })
+      .catch(() => {
+        // Best-effort — the ungraded hint just stays at 0 if this fails.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [detail, allocationId]);
 
-  function refresh() {
-    setTick((t) => t + 1);
-  }
+  const avatarInitials = dashboard ? `${dashboard.faculty.first_name[0]}${dashboard.faculty.last_name[0]}`.toUpperCase() : "—";
 
-  if (!detail) {
+  if (loadError) {
     return (
       <DashboardShell
-        railItems={RAIL_ITEMS}
+        railItems={FACULTY_RAIL_ITEMS}
         activeRailId="allocations"
         homeHref="/faculty/dashboard"
+        profileHref="/faculty/profile"
         avatarInitials={avatarInitials}
         pageTitle="Allocation"
-        subtitle={dashboard.faculty.institutional_email}
+        subtitle=""
+      >
+        <div className={formStyles.errorBanner}>{loadError}</div>
+      </DashboardShell>
+    );
+  }
+
+  if (notFound) {
+    return (
+      <DashboardShell
+        railItems={FACULTY_RAIL_ITEMS}
+        activeRailId="allocations"
+        homeHref="/faculty/dashboard"
+        profileHref="/faculty/profile"
+        avatarInitials={avatarInitials}
+        pageTitle="Allocation"
+        subtitle={dashboard?.faculty.institutional_email ?? ""}
       >
         <Breadcrumbs
           items={[
@@ -76,16 +137,31 @@ export function FacultyAllocationDetailPage() {
     );
   }
 
-  const ungraded = countUngradedForAllocation(allocationId);
+  if (!dashboard || !detail) {
+    return (
+      <DashboardShell
+        railItems={FACULTY_RAIL_ITEMS}
+        activeRailId="allocations"
+        homeHref="/faculty/dashboard"
+        profileHref="/faculty/profile"
+        avatarInitials={avatarInitials}
+        pageTitle="Allocation"
+        subtitle=""
+      >
+        <p className={styles.notFound}>Loading allocation…</p>
+      </DashboardShell>
+    );
+  }
+
   const locked = detail.status === "Completed";
   const resultPoints = detail.enrollment_set
-    .filter((e) => e.result !== null)
+    .filter((e) => e.result !== null && e.result.obtained_marks !== null && e.result.course_gpa !== null)
     .map((e) => ({
       enrollmentId: e.enrollment_id,
       studentName: e.student_info?.student_name ?? e.student,
       studentId: e.student_info?.student_id ?? e.student,
-      obtainedMarks: e.result!.obtained_marks,
-      courseGpa: e.result!.course_gpa,
+      obtainedMarks: e.result!.obtained_marks as number,
+      courseGpa: e.result!.course_gpa as number,
     }));
   const averageMarks = resultPoints.length
     ? (resultPoints.reduce((sum, p) => sum + p.obtainedMarks, 0) / resultPoints.length).toFixed(1)
@@ -94,23 +170,32 @@ export function FacultyAllocationDetailPage() {
     ? (resultPoints.reduce((sum, p) => sum + p.courseGpa, 0) / resultPoints.length).toFixed(2)
     : "—";
 
-  function handleRequestCalculation() {
-    const request = requestResultCalculation(allocationId);
+  async function handleRequestCalculation() {
+    setRequesting(true);
     setError(null);
-    setMessage(
-      request.status === "pending" && request.confirmed_at === null
-        ? "Result calculation requested — waiting on admin confirmation."
-        : `A ${request.status} request already covers this allocation.`,
-    );
-    refresh();
+    setMessage(null);
+    try {
+      const res = await apiGet<{ message: string }>(`/faculty/allocations/${allocationId}/calculate-result/`);
+      setMessage(res.message);
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 401) {
+        navigate("/login", { replace: true });
+        return;
+      }
+      setError(apiErrorMessage(err));
+    } finally {
+      setRequesting(false);
+    }
   }
 
   return (
     <DashboardShell
-      railItems={RAIL_ITEMS}
+      railItems={FACULTY_RAIL_ITEMS}
       activeRailId="allocations"
       homeHref="/faculty/dashboard"
+      profileHref="/faculty/profile"
       avatarInitials={avatarInitials}
+      avatarSrc={dashboard.faculty.image}
       pageTitle={detail.course}
       subtitle={`${detail.session} · Semester ${detail.semester} · ${dashboard.faculty.institutional_email}`}
     >
@@ -134,8 +219,13 @@ export function FacultyAllocationDetailPage() {
         </div>
         <div className={formStyles.actions}>
           <Tag tone={ALLOCATION_STATUS_TONE[detail.status]}>{detail.status}</Tag>
-          <button type="button" className={formStyles.primaryButton} onClick={handleRequestCalculation} disabled={locked}>
-            Request result calculation
+          <button
+            type="button"
+            className={formStyles.primaryButton}
+            onClick={handleRequestCalculation}
+            disabled={locked || requesting}
+          >
+            {requesting ? "Requesting…" : "Request result calculation"}
           </button>
         </div>
       </div>

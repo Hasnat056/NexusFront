@@ -1,51 +1,36 @@
-import { useState } from "react";
-import { useParams } from "react-router-dom";
-import { DashboardShell } from "../components/layout/DashboardShell";
-import type { RailNavItem } from "../components/layout/Rail";
-import { IconScroll, IconHourglass, IconInbox, IconBars, IconBook, IconBuilding, IconCalendar, IconClipboard, IconGraduationCap, IconLayers, IconGrid, IconPeople, IconPerson, IconUserCheck } from "../components/icons/Icons";
+import { useEffect, useState } from "react";
+import { useNavigate, useParams } from "react-router-dom";
+import { useAdminPageConfig } from "../components/layout/AdminShellContext";
 import { Breadcrumbs } from "../components/ui/Breadcrumbs";
 import { Panel } from "../components/ui/Panel";
 import { Tag } from "../components/ui/Tag";
-import {
-  SESSION_PERIODS,
-  SESSION_STATUS_TONE,
-  closingUnlocksAt,
-  formatSessionDateTime,
-  getSessionById,
-  isClosingDeadlineUnlocked,
-  isPeriodLocked,
-  setSessionActivationDeadline,
-  setSessionAvailabilityDelta,
-  setSessionClosingDeadline,
-  setSessionPeriod,
-  validateActivationDeadline,
-  validateClosingDeadline,
-} from "../data/sessionDirectory";
-import type { SessionPeriod } from "../types/api";
-import { mockAdminDashboardResponse } from "../data/adminDashboard";
-import { mockCurrentSession } from "../data/session";
+import { useToast } from "../components/ui/ToastContext";
+import { apiGet, apiMutate, invalidateCache } from "../lib/auth";
+import { ApiError, apiErrorMessage, apiFormErrors } from "../lib/api";
+import type { AdminSession, SessionPeriod, SessionStatus } from "../types/api";
+import type { StatusTone } from "../types/dashboard";
 import formStyles from "../components/ui/Form.module.css";
 import detailStyles from "./PersonDetailPage.module.css";
 
-const RAIL_ITEMS: RailNavItem[] = [
-  { id: "dashboard", label: "Dashboard", icon: IconGrid, href: "/admin/dashboard" },
-  { id: "faculty", label: "Faculty", icon: IconPerson, href: "/admin/faculty" },
-  { id: "students", label: "Students", icon: IconPeople, href: "/admin/students" },
-  { id: "departments", label: "Departments", icon: IconBuilding, href: "/admin/departments" },
-  { id: "programs", label: "Programs", icon: IconLayers, href: "/admin/programs" },
-  { id: "courses", label: "Courses", icon: IconBook, href: "/admin/courses" },
-  { id: "classes", label: "Classes", icon: IconGraduationCap, href: "/admin/classes" },
-  { id: "allocations", label: "Allocations", icon: IconClipboard, href: "/admin/allocations" },
-  { id: "enrollments", label: "Enrollments", icon: IconUserCheck, href: "/admin/enrollments" },
-  { id: "sessions", label: "Sessions", icon: IconCalendar, href: "/admin/sessions" },
-  { id: "semesters", label: "Semesters", icon: IconHourglass, href: "/admin/semesters" },
-  { id: "transcripts", label: "Transcripts", icon: IconScroll, href: "/admin/transcripts" },
-  { id: "requests", label: "Requests", icon: IconInbox, href: "/admin/requests" },
-  { id: "reports", label: "Reports", icon: IconBars },
-];
+const SESSION_PERIODS: SessionPeriod[] = ["Fall", "Spring"];
+const SESSION_STATUS_TONE: Record<SessionStatus, StatusTone> = {
+  Inactive: "warning",
+  Initiated: "warning",
+  Available: "good",
+  Active: "good",
+  Completed: "critical",
+};
 
-/** datetime-local inputs want "YYYY-MM-DDTHH:mm" with no timezone — this is local time, same as
- * what the input will hand back on change. */
+// UI-only guard rail (not enforced by SessionSerializer, which only checks status == 'Active') —
+// requires a session to have run 12 weeks before it can be closed, stricter than what the real
+// API currently accepts.
+const CLOSING_MIN_WEEKS_AFTER_ACTIVATION = 12;
+
+function formatSessionDateTime(iso: string | null): string {
+  if (!iso) return "—";
+  return new Date(iso).toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" });
+}
+
 function toLocalInputValue(iso: string | null): string {
   if (!iso) return "";
   const d = new Date(iso);
@@ -53,32 +38,171 @@ function toLocalInputValue(iso: string | null): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
+function closingUnlocksAt(activationDeadline: string | null): string | null {
+  if (!activationDeadline) return null;
+  const d = new Date(activationDeadline);
+  d.setUTCDate(d.getUTCDate() + CLOSING_MIN_WEEKS_AFTER_ACTIVATION * 7);
+  return d.toISOString();
+}
+
+function isClosingDeadlineUnlocked(session: AdminSession): boolean {
+  if (session.status !== "Active" || !session.activation_deadline) return false;
+  const unlocksAt = closingUnlocksAt(session.activation_deadline);
+  return unlocksAt !== null && new Date() >= new Date(unlocksAt);
+}
+
+function isPeriodLocked(session: AdminSession): boolean {
+  return session.activation_deadline !== null;
+}
+
+function validateActivationDeadline(iso: string): string | null {
+  const value = new Date(iso);
+  const now = new Date();
+  if (value < now) return "Activation deadline cannot be in the past.";
+  const fourWeeksOut = new Date(now.getTime() + 28 * 24 * 60 * 60 * 1000);
+  if (value > fourWeeksOut) return "Activation deadline cannot be more than 4 weeks in the future.";
+  return null;
+}
+
+function validateClosingDeadline(iso: string, activationDeadline: string | null): string | null {
+  const value = new Date(iso);
+  if (value < new Date()) return "Closing deadline cannot be in the past.";
+  if (activationDeadline && value <= new Date(activationDeadline)) {
+    return "Closing deadline must be after the activation deadline.";
+  }
+  return null;
+}
+
 export function SessionDetailPage() {
   const { id } = useParams<{ id: string }>();
-  const session = id ? getSessionById(Number(id)) : undefined;
-  const admin = mockAdminDashboardResponse.admin;
-  const avatarInitials = `${admin.first_name[0]}${admin.last_name[0]}`.toUpperCase();
+  const navigate = useNavigate();
+  const { showToast } = useToast();
+  const [session, setSession] = useState<AdminSession | null>(null);
+  const [notFound, setNotFound] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [refreshKey, setRefreshKey] = useState(0);
 
-  const [periodInput, setPeriodInput] = useState<SessionPeriod>(() => session?.period ?? "Fall");
-  const [activationInput, setActivationInput] = useState(() => toLocalInputValue(session?.activation_deadline ?? null));
-  const [deltaInput, setDeltaInput] = useState(() => String(session?.availability_delta ?? 7));
-  const [closingInput, setClosingInput] = useState(() => toLocalInputValue(session?.closing_deadline ?? null));
-  const [message, setMessage] = useState<string | null>(null);
+  const [periodInput, setPeriodInput] = useState<SessionPeriod>("Fall");
+  const [activationInput, setActivationInput] = useState("");
+  const [deltaInput, setDeltaInput] = useState("7");
+  const [closingInput, setClosingInput] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [, setTick] = useState(0);
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
 
-  if (!session) {
+  useAdminPageConfig("Session");
+
+  useEffect(() => {
+    if (!id) return;
+    let cancelled = false;
+    apiGet<AdminSession>(`/admin/sessions/${id}/`)
+      .then((res) => {
+        if (cancelled) return;
+        setSession(res);
+        setPeriodInput(res.period);
+        setActivationInput(toLocalInputValue(res.activation_deadline));
+        setDeltaInput(String(res.availability_delta));
+        setClosingInput(toLocalInputValue(res.closing_deadline));
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        if (err instanceof ApiError && err.status === 404) {
+          setNotFound(true);
+          return;
+        }
+        if (err instanceof ApiError && err.status === 401) {
+          navigate("/login", { replace: true });
+          return;
+        }
+        setLoadError(apiErrorMessage(err));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [id, navigate, refreshKey]);
+
+  async function handleSetPeriod(e: React.FormEvent) {
+    e.preventDefault();
+    if (!id) return;
+    setError(null);
+    setFieldErrors({});
+    try {
+      await apiMutate<AdminSession>(`/admin/sessions/${id}/`, "PATCH", { period: periodInput });
+      invalidateCache("admin:sessions");
+      showToast("Term updated.");
+      setRefreshKey((k) => k + 1);
+    } catch (err) {
+      const { banner, fields } = apiFormErrors(err);
+      setError(banner);
+      setFieldErrors(fields);
+    }
+  }
+
+  async function handleSetActivation(e: React.FormEvent) {
+    e.preventDefault();
+    if (!id) return;
+    setError(null);
+    setFieldErrors({});
+    const iso = new Date(activationInput).toISOString();
+    const validationError = validateActivationDeadline(iso);
+    if (validationError) {
+      setFieldErrors({ activation_deadline: validationError });
+      return;
+    }
+    try {
+      await apiMutate<AdminSession>(`/admin/sessions/${id}/`, "PATCH", { activation_deadline: iso });
+      invalidateCache("admin:sessions");
+      showToast("Activation deadline set — status moved to Initiated. Availability and activation happen automatically at those times.");
+      setRefreshKey((k) => k + 1);
+    } catch (err) {
+      const { banner, fields } = apiFormErrors(err);
+      setError(banner);
+      setFieldErrors(fields);
+    }
+  }
+
+  async function handleSetDelta(e: React.FormEvent) {
+    e.preventDefault();
+    if (!id) return;
+    setError(null);
+    setFieldErrors({});
+    try {
+      await apiMutate<AdminSession>(`/admin/sessions/${id}/`, "PATCH", { availability_delta: Number(deltaInput) || 0 });
+      invalidateCache("admin:sessions");
+      showToast("Availability window updated.");
+      setRefreshKey((k) => k + 1);
+    } catch (err) {
+      const { banner, fields } = apiFormErrors(err);
+      setError(banner);
+      setFieldErrors(fields);
+    }
+  }
+
+  async function handleSetClosing(e: React.FormEvent) {
+    e.preventDefault();
+    if (!id || !session) return;
+    setError(null);
+    setFieldErrors({});
+    const iso = new Date(closingInput).toISOString();
+    const validationError = validateClosingDeadline(iso, session.activation_deadline);
+    if (validationError) {
+      setFieldErrors({ closing_deadline: validationError });
+      return;
+    }
+    try {
+      await apiMutate<AdminSession>(`/admin/sessions/${id}/`, "PATCH", { closing_deadline: iso });
+      invalidateCache("admin:sessions");
+      showToast("Closing deadline set.");
+      setRefreshKey((k) => k + 1);
+    } catch (err) {
+      const { banner, fields } = apiFormErrors(err);
+      setError(banner);
+      setFieldErrors(fields);
+    }
+  }
+
+  if (notFound) {
     return (
-      <DashboardShell
-        railItems={RAIL_ITEMS}
-        activeRailId="sessions"
-        homeHref="/admin/dashboard"
-        avatarInitials={avatarInitials}
-        pageTitle="Session"
-        sessionLabel={mockCurrentSession}
-        subtitle={admin.institutional_email}
-        profileHref="/admin/profile"
-      >
+      <>
         <Breadcrumbs
           items={[
             { label: "Dashboard", href: "/admin/dashboard" },
@@ -87,52 +211,16 @@ export function SessionDetailPage() {
           ]}
         />
         <p className={detailStyles.notFound}>Session {id} was not found.</p>
-      </DashboardShell>
+      </>
     );
   }
 
-  function handleSetPeriod(e: React.FormEvent) {
-    e.preventDefault();
-    setError(null);
-    setSessionPeriod(session!.id, periodInput);
-    setMessage("Term updated.");
-    setTick((t) => t + 1);
+  if (loadError) {
+    return <div className={formStyles.errorBanner}>{loadError}</div>;
   }
 
-  function handleSetActivation(e: React.FormEvent) {
-    e.preventDefault();
-    setError(null);
-    const iso = new Date(activationInput).toISOString();
-    const validationError = validateActivationDeadline(iso);
-    if (validationError) {
-      setError(validationError);
-      return;
-    }
-    setSessionActivationDeadline(session!.id, iso);
-    setMessage("Activation deadline set — status moved to Initiated. Availability and activation happen automatically at those times.");
-    setTick((t) => t + 1);
-  }
-
-  function handleSetDelta(e: React.FormEvent) {
-    e.preventDefault();
-    setError(null);
-    setSessionAvailabilityDelta(session!.id, Number(deltaInput) || 0);
-    setMessage("Availability window updated.");
-    setTick((t) => t + 1);
-  }
-
-  function handleSetClosing(e: React.FormEvent) {
-    e.preventDefault();
-    setError(null);
-    const iso = new Date(closingInput).toISOString();
-    const validationError = validateClosingDeadline(iso, session!.activation_deadline);
-    if (validationError) {
-      setError(validationError);
-      return;
-    }
-    setSessionClosingDeadline(session!.id, iso);
-    setMessage("Closing deadline set.");
-    setTick((t) => t + 1);
+  if (!session) {
+    return <p className={detailStyles.empty}>Loading session…</p>;
   }
 
   const periodLocked = isPeriodLocked(session);
@@ -140,16 +228,7 @@ export function SessionDetailPage() {
   const closingUnlockDate = closingUnlocksAt(session.activation_deadline);
 
   return (
-    <DashboardShell
-      railItems={RAIL_ITEMS}
-      activeRailId="sessions"
-      homeHref="/admin/dashboard"
-      avatarInitials={avatarInitials}
-      pageTitle="Session"
-      sessionLabel={mockCurrentSession}
-      subtitle={admin.institutional_email}
-      profileHref="/admin/profile"
-    >
+    <>
       <Breadcrumbs
         items={[
           { label: "Dashboard", href: "/admin/dashboard" },
@@ -158,7 +237,6 @@ export function SessionDetailPage() {
         ]}
       />
 
-      {message && <div className={formStyles.banner}>{message}</div>}
       {error && <div className={formStyles.errorBanner}>{error}</div>}
 
       <div className={detailStyles.profileCard}>
@@ -174,7 +252,7 @@ export function SessionDetailPage() {
       <Panel title="Term">
         <div className={detailStyles.panelBody}>
           <form className={formStyles.row} onSubmit={handleSetPeriod}>
-            <div className={formStyles.field}>
+            <div className={formStyles.field} data-invalid={fieldErrors.period ? "true" : undefined}>
               <label htmlFor="period">Period</label>
               <select
                 id="period"
@@ -188,6 +266,7 @@ export function SessionDetailPage() {
                   </option>
                 ))}
               </select>
+              {fieldErrors.period && <span className={formStyles.fieldError}>{fieldErrors.period}</span>}
             </div>
             <div className={formStyles.field}>
               <label>Year</label>
@@ -211,7 +290,7 @@ export function SessionDetailPage() {
       <Panel title="Availability window">
         <div className={detailStyles.panelBody}>
           <form className={formStyles.row} onSubmit={handleSetDelta}>
-            <div className={formStyles.field}>
+            <div className={formStyles.field} data-invalid={fieldErrors.availability_delta ? "true" : undefined}>
               <label htmlFor="availability_delta">Days before activation</label>
               <input
                 id="availability_delta"
@@ -219,6 +298,7 @@ export function SessionDetailPage() {
                 value={deltaInput}
                 onChange={(e) => setDeltaInput(e.target.value)}
               />
+              {fieldErrors.availability_delta && <span className={formStyles.fieldError}>{fieldErrors.availability_delta}</span>}
             </div>
             <div className={formStyles.field}>
               <label>Availability deadline (computed)</label>
@@ -237,7 +317,7 @@ export function SessionDetailPage() {
       <Panel title="Activation">
         <div className={detailStyles.panelBody}>
           <form className={formStyles.row} onSubmit={handleSetActivation}>
-            <div className={formStyles.field}>
+            <div className={formStyles.field} data-invalid={fieldErrors.activation_deadline ? "true" : undefined}>
               <label htmlFor="activation_deadline">Activation deadline</label>
               <input
                 id="activation_deadline"
@@ -246,6 +326,7 @@ export function SessionDetailPage() {
                 onChange={(e) => setActivationInput(e.target.value)}
                 required
               />
+              {fieldErrors.activation_deadline && <span className={formStyles.fieldError}>{fieldErrors.activation_deadline}</span>}
             </div>
             <div className={formStyles.field}>
               <label>&nbsp;</label>
@@ -257,8 +338,7 @@ export function SessionDetailPage() {
           <span className={formStyles.hint}>
             Submitting forces status to Initiated immediately. session_availability_task (at the
             availability deadline) and session_activation_task (at the activation deadline) run
-            server-side afterwards to move it to Available then Active — not modeled here since
-            there's no scheduler in this mock.
+            server-side afterwards to move it to Available then Active.
           </span>
         </div>
       </Panel>
@@ -266,7 +346,7 @@ export function SessionDetailPage() {
       <Panel title="Closing">
         <div className={detailStyles.panelBody}>
           <form className={formStyles.row} onSubmit={handleSetClosing}>
-            <div className={formStyles.field}>
+            <div className={formStyles.field} data-invalid={fieldErrors.closing_deadline ? "true" : undefined}>
               <label htmlFor="closing_deadline">Closing deadline</label>
               <input
                 id="closing_deadline"
@@ -277,6 +357,7 @@ export function SessionDetailPage() {
                 disabled={!closingUnlocked}
                 required
               />
+              {fieldErrors.closing_deadline && <span className={formStyles.fieldError}>{fieldErrors.closing_deadline}</span>}
             </div>
             <div className={formStyles.field}>
               <label>&nbsp;</label>
@@ -294,6 +375,6 @@ export function SessionDetailPage() {
           </span>
         </div>
       </Panel>
-    </DashboardShell>
+    </>
   );
 }

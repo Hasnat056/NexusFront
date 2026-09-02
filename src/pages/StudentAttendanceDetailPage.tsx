@@ -1,27 +1,20 @@
-import { useMemo, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { useEffect, useMemo, useState } from "react";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { DashboardShell } from "../components/layout/DashboardShell";
-import type { RailNavItem } from "../components/layout/Rail";
-import { IconCalendar, IconGrid, IconPerson, IconScroll, IconTerminal, IconUserCheck } from "../components/icons/Icons";
+import { STUDENT_RAIL_ITEMS } from "../components/layout/studentRailItems";
 import { AttendanceDots } from "../components/ui/AttendanceDots";
 import { Breadcrumbs } from "../components/ui/Breadcrumbs";
 import { FilterBar } from "../components/ui/FilterBar";
 import { Panel } from "../components/ui/Panel";
 import { Table } from "../components/ui/Table";
 import { Tag } from "../components/ui/Tag";
-import { attendancePercentageTone, getStudentAttendanceForEnrollment } from "../data/studentAttendance";
-import { mockStudentDashboardResponse } from "../data/studentDashboard";
+import { attendancePercentageTone } from "../data/studentAttendance";
+import { apiGet } from "../lib/auth";
+import { ApiError, apiErrorMessage } from "../lib/api";
+import type { StudentAttendanceSummary, StudentDashboardResponse } from "../types/api";
+import formStyles from "../components/ui/Form.module.css";
 import styles from "./PersonDetailPage.module.css";
 import pageStyles from "./StudentAttendanceDetailPage.module.css";
-
-const RAIL_ITEMS: RailNavItem[] = [
-  { id: "dashboard", label: "Dashboard", icon: IconGrid, href: "/student/dashboard" },
-  { id: "enrollments", label: "Enrollments", icon: IconUserCheck, href: "/student/enrollments" },
-  { id: "transcript", label: "Transcript", icon: IconScroll, href: "/student/transcript" },
-  { id: "attendance", label: "Attendance", icon: IconCalendar, href: "/student/attendance" },
-  { id: "profile", label: "Profile", icon: IconPerson, href: "/student/profile" },
-  { id: "scratchpad", label: "Scratchpad", icon: IconTerminal, href: "/student/scratchpad" },
-];
 
 const STATUS_OPTIONS = [
   { value: "present", label: "Present" },
@@ -33,15 +26,44 @@ function formatDate(iso: string): string {
 }
 
 export function StudentAttendanceDetailPage() {
+  const navigate = useNavigate();
   const { id } = useParams<{ id: string }>();
   const enrollmentId = id ? Number(id) : NaN;
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("");
 
-  const dashboard = mockStudentDashboardResponse;
-  const avatarInitials = `${dashboard.first_name[0]}${dashboard.last_name[0]}`.toUpperCase();
+  const [dashboard, setDashboard] = useState<StudentDashboardResponse | null>(null);
+  const [summary, setSummary] = useState<StudentAttendanceSummary | null>(null);
+  const [notFound, setNotFound] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
-  const summary = getStudentAttendanceForEnrollment(enrollmentId);
+  useEffect(() => {
+    let cancelled = false;
+    Promise.all([
+      apiGet<StudentDashboardResponse>("/student/dashboard/"),
+      apiGet<StudentAttendanceSummary>(`/student/attendance/${enrollmentId}/`),
+    ])
+      .then(([dashboardRes, summaryRes]) => {
+        if (cancelled) return;
+        setDashboard(dashboardRes);
+        setSummary(summaryRes);
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        if (err instanceof ApiError && err.status === 401) {
+          navigate("/login", { replace: true });
+          return;
+        }
+        if (err instanceof ApiError && err.status === 404) {
+          setNotFound(true);
+          return;
+        }
+        setLoadError(apiErrorMessage(err));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [navigate, enrollmentId]);
 
   const filtered = useMemo(() => {
     if (!summary) return [];
@@ -53,15 +75,26 @@ export function StudentAttendanceDetailPage() {
     });
   }, [summary, search, status]);
 
-  if (!summary) {
+  const avatarInitials = dashboard ? `${dashboard.first_name[0]}${dashboard.last_name[0]}`.toUpperCase() : "—";
+
+  if (loadError) {
+    return (
+      <DashboardShell railItems={STUDENT_RAIL_ITEMS} activeRailId="attendance" homeHref="/student/dashboard" profileHref="/student/profile" avatarInitials={avatarInitials} pageTitle="Attendance" subtitle="">
+        <div className={formStyles.errorBanner}>{loadError}</div>
+      </DashboardShell>
+    );
+  }
+
+  if (notFound) {
     return (
       <DashboardShell
-        railItems={RAIL_ITEMS}
+        railItems={STUDENT_RAIL_ITEMS}
         activeRailId="attendance"
         homeHref="/student/dashboard"
+        profileHref="/student/profile"
         avatarInitials={avatarInitials}
         pageTitle="Attendance"
-        subtitle={dashboard.institutional_email}
+        subtitle={dashboard?.institutional_email ?? ""}
       >
         <Breadcrumbs
           items={[
@@ -75,16 +108,26 @@ export function StudentAttendanceDetailPage() {
     );
   }
 
+  if (!dashboard || !summary) {
+    return (
+      <DashboardShell railItems={STUDENT_RAIL_ITEMS} activeRailId="attendance" homeHref="/student/dashboard" profileHref="/student/profile" avatarInitials={avatarInitials} pageTitle="Attendance" subtitle="">
+        <p className={styles.notFound}>Loading attendance…</p>
+      </DashboardShell>
+    );
+  }
+
   const { course_details: course, faculty_details: faculty, attendance_details, percentage } = summary;
   const tone = attendancePercentageTone(percentage);
   const attended = attendance_details.filter((d) => d.is_present).length;
 
   return (
     <DashboardShell
-      railItems={RAIL_ITEMS}
+      railItems={STUDENT_RAIL_ITEMS}
       activeRailId="attendance"
       homeHref="/student/dashboard"
+      profileHref="/student/profile"
       avatarInitials={avatarInitials}
+      avatarSrc={dashboard.image}
       pageTitle={course?.course_name ?? course?.course_code ?? "Attendance"}
       subtitle={dashboard.institutional_email}
     >

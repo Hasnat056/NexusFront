@@ -34,6 +34,15 @@ function buildGeometry(data: TrendPoint[]) {
 
 export function EnrollmentTrendChart({ data, formatValue, axisLabels = [] }: EnrollmentTrendChartProps) {
   const [hovered, setHovered] = useState<number | null>(null);
+
+  if (data.length === 0) {
+    return (
+      <div className={styles.wrap}>
+        <div className={`${styles.chartFrame} ${styles.empty}`}>No enrollment data yet.</div>
+      </div>
+    );
+  }
+
   const points = buildGeometry(data);
   const linePoints = points.map((p) => `${p.x},${p.y}`).join(" ");
   const areaPoints = `${linePoints} ${points[points.length - 1].x},${PLOT_BOTTOM} ${points[0].x},${PLOT_BOTTOM}`;

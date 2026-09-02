@@ -4,6 +4,7 @@
   flex-direction: column;
   gap: 0.9rem;
   align-items: center;
+  justify-content: center;
 }
 
 .chartFrame {
@@ -11,6 +12,16 @@
   width: 100%;
   max-width: 160px;
   aspect-ratio: 1 / 1;
+}
+
+.empty {
+  max-width: none;
+  aspect-ratio: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-muted);
+  font-size: 0.86rem;
 }
 
 .svg {

@@ -20,12 +20,8 @@ export const CHANGE_REQUEST_STATUS_LABEL: Record<ChangeRequest["status"], string
 
 /**
  * Stand-in for GET /api/admin/requests/ (AdminModule/views.py::ChangeRequestListAPIView) — the
- * full queue, every status, not just pending. The dashboard's ChangeRequestsPanel widget filters
- * this down to pending/confirmed itself (mirroring an admin filtering ?status=pending themselves);
- * the full queue page at /admin/requests shows all of it with a status filter. This is also the
- * single source of truth Faculty's own request views (data/facultyRequests.ts) read and write
- * against — a Faculty member's result_calculation request and the row Admin confirms/declines are
- * the same underlying record, not two independently-tracked copies.
+ * full queue, every status, not just pending; the queue page at /admin/requests shows all of it
+ * with a status filter. Still used by data/departmentDirectory.ts.
  */
 const SEED_CHANGE_REQUESTS: ChangeRequest[] = [
   {
@@ -196,14 +192,6 @@ export function formatRelativeTime(iso: string, now: Date = new Date()): string 
   return `${days}d ago`;
 }
 
-export interface ChangeRequestListItem {
-  id: number;
-  headline: string;
-  status: ChangeRequest["status"];
-  relativeTime: string;
-  detailHref: string;
-}
-
 export function getChangeRequestById(id: number): ChangeRequest | undefined {
   return mockChangeRequests.find((cr) => cr.id === id);
 }
@@ -266,17 +254,4 @@ export function markChangeRequestDeclined(id: number): ChangeRequest | undefined
   request.applied_at = new Date().toISOString();
   saveChangeRequests();
   return request;
-}
-
-export function selectChangeRequestListItems(
-  requests: ChangeRequest[],
-  now?: Date,
-): ChangeRequestListItem[] {
-  return requests.map((cr) => ({
-    id: cr.id,
-    headline: changeRequestHeadline(cr),
-    status: cr.status,
-    relativeTime: formatRelativeTime(cr.requested_at, now),
-    detailHref: `/admin/requests/${cr.id}`,
-  }));
 }

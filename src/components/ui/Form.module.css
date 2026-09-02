@@ -57,6 +57,18 @@
   cursor: not-allowed;
 }
 
+.field[data-invalid="true"] input,
+.field[data-invalid="true"] select,
+.field[data-invalid="true"] textarea {
+  border-color: var(--color-critical);
+}
+
+.field[data-invalid="true"] input:focus-visible,
+.field[data-invalid="true"] select:focus-visible,
+.field[data-invalid="true"] textarea:focus-visible {
+  box-shadow: 0 0 0 3px var(--color-critical-soft);
+}
+
 .hint {
   font-size: 0.72rem;
   color: var(--color-muted);

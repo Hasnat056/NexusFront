@@ -1,45 +1,21 @@
-import { useState } from "react";
-import { useParams } from "react-router-dom";
-import { DashboardShell } from "../components/layout/DashboardShell";
-import type { RailNavItem } from "../components/layout/Rail";
-import { IconScroll, IconHourglass, IconInbox, IconBars, IconBook, IconBuilding, IconCalendar, IconClipboard, IconGraduationCap, IconLayers, IconGrid, IconPeople, IconPerson, IconUserCheck } from "../components/icons/Icons";
+import { useEffect, useState } from "react";
+import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
+import { useAdminPageConfig } from "../components/layout/AdminShellContext";
 import { Breadcrumbs } from "../components/ui/Breadcrumbs";
 import { Panel } from "../components/ui/Panel";
 import { Table, type Column } from "../components/ui/Table";
 import { Tag } from "../components/ui/Tag";
 import { PersonFormFields } from "../components/ui/PersonFormFields";
-import {
-  DESIGNATIONS,
-  facultyFormValueFromRecord,
-  getFacultyById,
-  requestFacultyDeletion,
-  updateFacultyRecord,
-  type FacultyFormValue,
-} from "../data/facultyDirectory";
-import { DEPARTMENTS } from "../data/academicStructure";
-import { mockAdminDashboardResponse } from "../data/adminDashboard";
-import { mockCurrentSession } from "../data/session";
-import type { AdminCourseAllocationSummary } from "../types/api";
+import { useToast } from "../components/ui/ToastContext";
+import { DESIGNATIONS, facultyFormValueFromRecord } from "../data/facultyDirectory";
+import { apiGet, apiGetAllPages, apiMutate, apiMutateForm, cached, invalidateCache } from "../lib/auth";
+import { ApiError, apiErrorMessage, apiFormErrors, remapListFieldErrors, splitFieldErrors } from "../lib/api";
+import { nonBlankQualificationIndices } from "../data/qualificationForm";
+import type { AdminCourseAllocationSummary, AdminDepartment, AdminFacultyDetail } from "../types/api";
+import type { FacultyFormValue } from "../data/facultyDirectory";
 import type { StatusTone } from "../types/dashboard";
 import formStyles from "../components/ui/Form.module.css";
 import styles from "./PersonDetailPage.module.css";
-
-const RAIL_ITEMS: RailNavItem[] = [
-  { id: "dashboard", label: "Dashboard", icon: IconGrid, href: "/admin/dashboard" },
-  { id: "faculty", label: "Faculty", icon: IconPerson, href: "/admin/faculty" },
-  { id: "students", label: "Students", icon: IconPeople, href: "/admin/students" },
-  { id: "departments", label: "Departments", icon: IconBuilding, href: "/admin/departments" },
-  { id: "programs", label: "Programs", icon: IconLayers, href: "/admin/programs" },
-  { id: "courses", label: "Courses", icon: IconBook, href: "/admin/courses" },
-  { id: "classes", label: "Classes", icon: IconGraduationCap, href: "/admin/classes" },
-  { id: "allocations", label: "Allocations", icon: IconClipboard, href: "/admin/allocations" },
-  { id: "enrollments", label: "Enrollments", icon: IconUserCheck, href: "/admin/enrollments" },
-  { id: "sessions", label: "Sessions", icon: IconCalendar, href: "/admin/sessions" },
-  { id: "semesters", label: "Semesters", icon: IconHourglass, href: "/admin/semesters" },
-  { id: "transcripts", label: "Transcripts", icon: IconScroll, href: "/admin/transcripts" },
-  { id: "requests", label: "Requests", icon: IconInbox, href: "/admin/requests" },
-  { id: "reports", label: "Reports", icon: IconBars },
-];
 
 const ALLOCATION_TONE: Record<AdminCourseAllocationSummary["status"], StatusTone> = {
   Ongoing: "good",
@@ -61,26 +37,66 @@ const allocationColumns: Column<AdminCourseAllocationSummary>[] = [
 
 export function FacultyDetailPage() {
   const { employeeId } = useParams<{ employeeId: string }>();
-  const record = employeeId ? getFacultyById(employeeId) : undefined;
-  const admin = mockAdminDashboardResponse.admin;
-  const avatarInitials = `${admin.first_name[0]}${admin.last_name[0]}`.toUpperCase();
+  const navigate = useNavigate();
+  const location = useLocation();
+  const { showToast } = useToast();
+  const viewPath = `/admin/faculty/${employeeId}`;
+  const editing = location.pathname.endsWith("/edit");
+  const [record, setRecord] = useState<AdminFacultyDetail | null>(null);
+  const [departments, setDepartments] = useState<AdminDepartment[]>([]);
+  const [notFound, setNotFound] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [refreshKey, setRefreshKey] = useState(0);
 
-  const [editing, setEditing] = useState(false);
   const [formValue, setFormValue] = useState<FacultyFormValue | null>(null);
-  const [message, setMessage] = useState<string | null>(null);
+  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  const [saving, setSaving] = useState(false);
 
-  if (!record) {
+  useAdminPageConfig(editing ? "Edit faculty" : "Faculty");
+
+  useEffect(() => {
+    if (!employeeId) return;
+    let cancelled = false;
+    Promise.all([
+      apiGet<AdminFacultyDetail>(`/admin/faculty/${employeeId}/`),
+      cached("admin:departments", () => apiGetAllPages<AdminDepartment>("/admin/departments/")),
+    ])
+      .then(([recordRes, departmentsRes]) => {
+        if (cancelled) return;
+        setRecord(recordRes);
+        setDepartments(departmentsRes);
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        if (err instanceof ApiError && err.status === 404) {
+          setNotFound(true);
+          return;
+        }
+        if (err instanceof ApiError && err.status === 401) {
+          navigate("/login", { replace: true });
+          return;
+        }
+        setLoadError(apiErrorMessage(err));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [employeeId, navigate, refreshKey]);
+
+  useEffect(() => {
+    if (editing && record) {
+      setFormValue(facultyFormValueFromRecord(record));
+      setImageFile(null);
+      setSaveError(null);
+      setFieldErrors({});
+    }
+  }, [editing, record]);
+
+  if (notFound) {
     return (
-      <DashboardShell
-        railItems={RAIL_ITEMS}
-        activeRailId="faculty"
-        homeHref="/admin/dashboard"
-        avatarInitials={avatarInitials}
-        pageTitle="Faculty"
-        sessionLabel={mockCurrentSession}
-        subtitle={admin.institutional_email}
-        profileHref="/admin/profile"
-      >
+      <>
         <Breadcrumbs
           items={[
             { label: "Dashboard", href: "/admin/dashboard" },
@@ -89,74 +105,137 @@ export function FacultyDetailPage() {
           ]}
         />
         <p className={styles.notFound}>Faculty member {employeeId} was not found.</p>
-      </DashboardShell>
+      </>
     );
   }
 
-  function startEditing() {
-    setFormValue(facultyFormValueFromRecord(record!));
-    setEditing(true);
-    setMessage(null);
+  if (loadError) {
+    return <div className={formStyles.errorBanner}>{loadError}</div>;
   }
 
-  function handleSave(e: React.FormEvent) {
+  if (!record) {
+    return <p className={styles.notFound}>Loading faculty…</p>;
+  }
+
+  async function handleSave(e: React.FormEvent) {
     e.preventDefault();
     if (!formValue || !employeeId) return;
-    updateFacultyRecord(employeeId, formValue);
-    setEditing(false);
-    setMessage("Faculty record updated.");
+    setSaving(true);
+    setSaveError(null);
+    setFieldErrors({});
+    try {
+      await apiMutate(`/admin/faculty/${employeeId}/`, "PATCH", {
+        person: {
+          first_name: formValue.first_name,
+          last_name: formValue.last_name,
+          father_name: formValue.father_name,
+          gender: formValue.gender,
+          dob: formValue.dob,
+          cnic: formValue.cnic,
+          institutional_email: formValue.institutional_email,
+          personal_email: formValue.personal_email || null,
+          contact_number: formValue.contact_number,
+          religion: formValue.religion || null,
+          address: {
+            country: formValue.address.country,
+            province: formValue.address.province || null,
+            city: formValue.address.city,
+            zipcode: formValue.address.zipcode ? Number(formValue.address.zipcode) : null,
+            street_address: formValue.address.street_address || null,
+          },
+          qualification_set: formValue.qualification_set
+            .filter((q) => q.degree_title.trim() || q.institution.trim())
+            .map((q) => ({
+              degree_title: q.degree_title,
+              education_board: q.education_board || null,
+              passing_year: q.passing_year ? Number(q.passing_year) : null,
+              institution: q.institution,
+              total_marks: q.total_marks ? Number(q.total_marks) : null,
+              obtained_marks: q.obtained_marks ? Number(q.obtained_marks) : null,
+              is_current: q.is_current,
+            })),
+        },
+        department: formValue.department,
+        designation: formValue.designation,
+        joining_date: formValue.joining_date,
+      });
+
+      if (imageFile) {
+        const form = new FormData();
+        form.append("person.image", imageFile);
+        await apiMutateForm(`/admin/faculty/${employeeId}/`, "PATCH", form);
+      }
+
+      invalidateCache("admin:all-faculty");
+      navigate(viewPath);
+      showToast("Faculty record updated.");
+      setRefreshKey((k) => k + 1);
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 401) {
+        navigate("/login", { replace: true });
+        return;
+      }
+      const { banner, fields } = apiFormErrors(err);
+      setSaveError(banner);
+      setFieldErrors(remapListFieldErrors(fields, "person.qualification_set", nonBlankQualificationIndices(formValue.qualification_set)));
+    } finally {
+      setSaving(false);
+    }
   }
 
-  function handleDeleteRequest() {
-    if (!employeeId) return;
-    const result = requestFacultyDeletion(employeeId);
-    setMessage(result.message);
-  }
+  const { matched: personFieldErrors, rest: facultyFieldErrors } = splitFieldErrors(fieldErrors, "person");
 
   const facultyAvatarInitials = `${record.person.first_name[0]}${record.person.last_name[0]}`.toUpperCase();
 
   return (
-    <DashboardShell
-      railItems={RAIL_ITEMS}
-      activeRailId="faculty"
-      homeHref="/admin/dashboard"
-      avatarInitials={avatarInitials}
-      pageTitle={editing ? "Edit faculty" : "Faculty"}
-      sessionLabel={mockCurrentSession}
-      subtitle={admin.institutional_email}
-      profileHref="/admin/profile"
-    >
+    <>
       <Breadcrumbs
-        items={[
-          { label: "Dashboard", href: "/admin/dashboard" },
-          { label: "Faculty", href: "/admin/faculty" },
-          { label: `${record.person.first_name} ${record.person.last_name}` },
-        ]}
+        items={
+          editing
+            ? [
+                { label: "Dashboard", href: "/admin/dashboard" },
+                { label: "Faculty", href: "/admin/faculty" },
+                { label: `${record.person.first_name} ${record.person.last_name}`, href: viewPath },
+                { label: "Edit" },
+              ]
+            : [
+                { label: "Dashboard", href: "/admin/dashboard" },
+                { label: "Faculty", href: "/admin/faculty" },
+                { label: `${record.person.first_name} ${record.person.last_name}` },
+              ]
+        }
       />
-
-      {message && <div className={formStyles.banner}>{message}</div>}
 
       {editing && formValue ? (
         <form className={styles.editCard} onSubmit={handleSave}>
-          <PersonFormFields value={formValue} onChange={setFormValue} isCreate={false} />
+          {saveError && <div className={formStyles.errorBanner}>{saveError}</div>}
+
+          <PersonFormFields
+            value={formValue}
+            onChange={setFormValue}
+            isCreate={false}
+            onImageFile={setImageFile}
+            fieldErrors={personFieldErrors}
+          />
 
           <h3 className={formStyles.sectionTitle}>Faculty details</h3>
           <div className={formStyles.row}>
-            <div className={formStyles.field}>
+            <div className={formStyles.field} data-invalid={facultyFieldErrors.department ? "true" : undefined}>
               <label htmlFor="department">Department</label>
               <select
                 id="department"
                 value={formValue.department}
                 onChange={(e) => setFormValue({ ...formValue, department: e.target.value })}
               >
-                {DEPARTMENTS.map((d) => (
+                {departments.map((d) => (
                   <option key={d.department_id} value={d.department_id}>
                     {d.department_name}
                   </option>
                 ))}
               </select>
+              {facultyFieldErrors.department && <span className={formStyles.fieldError}>{facultyFieldErrors.department}</span>}
             </div>
-            <div className={formStyles.field}>
+            <div className={formStyles.field} data-invalid={facultyFieldErrors.designation ? "true" : undefined}>
               <label htmlFor="designation">Designation</label>
               <select
                 id="designation"
@@ -169,8 +248,9 @@ export function FacultyDetailPage() {
                   </option>
                 ))}
               </select>
+              {facultyFieldErrors.designation && <span className={formStyles.fieldError}>{facultyFieldErrors.designation}</span>}
             </div>
-            <div className={formStyles.field}>
+            <div className={formStyles.field} data-invalid={facultyFieldErrors.joining_date ? "true" : undefined}>
               <label htmlFor="joining_date">Joining date</label>
               <input
                 id="joining_date"
@@ -178,14 +258,15 @@ export function FacultyDetailPage() {
                 value={formValue.joining_date}
                 onChange={(e) => setFormValue({ ...formValue, joining_date: e.target.value })}
               />
+              {facultyFieldErrors.joining_date && <span className={formStyles.fieldError}>{facultyFieldErrors.joining_date}</span>}
             </div>
           </div>
 
           <div className={formStyles.actions}>
-            <button type="submit" className={formStyles.primaryButton}>
-              Save changes
+            <button type="submit" className={formStyles.primaryButton} disabled={saving}>
+              {saving ? "Saving…" : "Save changes"}
             </button>
-            <button type="button" className={formStyles.secondaryButton} onClick={() => setEditing(false)}>
+            <button type="button" className={formStyles.secondaryButton} onClick={() => navigate(viewPath)} disabled={saving}>
               Cancel
             </button>
           </div>
@@ -193,7 +274,7 @@ export function FacultyDetailPage() {
       ) : (
         <>
           <div className={styles.profileCard}>
-            <div className={styles.avatar}>{facultyAvatarInitials}</div>
+            <div className={styles.avatar}>{record.person.image ? <img src={record.person.image} alt="" /> : facultyAvatarInitials}</div>
             <div className={styles.profileMain}>
               <h1 className={styles.name}>
                 {record.person.first_name} {record.person.last_name}
@@ -201,20 +282,11 @@ export function FacultyDetailPage() {
               <p className={styles.subline}>
                 {record.person.person_id} · {record.designation} · {record.department}
               </p>
-              {record.pendingDeletion && <Tag tone="critical">Deletion pending confirmation</Tag>}
             </div>
             <div className={formStyles.actions}>
-              <button type="button" className={formStyles.secondaryButton} onClick={startEditing}>
+              <Link to={`${viewPath}/edit`} className={formStyles.secondaryButton}>
                 Edit
-              </button>
-              <button
-                type="button"
-                className={formStyles.dangerButton}
-                onClick={handleDeleteRequest}
-                disabled={record.pendingDeletion}
-              >
-                Request deletion
-              </button>
+              </Link>
             </div>
           </div>
 
@@ -267,8 +339,14 @@ export function FacultyDetailPage() {
               <p className={styles.empty}>No course allocations.</p>
             )}
           </Panel>
+
+          <p className={formStyles.hint}>
+            FacultyRetrieveUpdateAPIView only wires GET/PUT/PATCH — there's no DELETE route for a
+            faculty record, so this app has no deletion action here (destroy_mixin exists on the
+            view but nothing routes DELETE to it).
+          </p>
         </>
       )}
-    </DashboardShell>
+    </>
   );
 }

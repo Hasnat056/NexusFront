@@ -1,44 +1,105 @@
-import { useState } from "react";
-import { Link } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
 import { DashboardShell } from "../components/layout/DashboardShell";
-import type { RailNavItem } from "../components/layout/Rail";
-import { IconBook, IconGrid, IconPerson } from "../components/icons/Icons";
+import { FACULTY_RAIL_ITEMS } from "../components/layout/facultyRailItems";
 import { ProfileStrip } from "../components/ui/ProfileStrip";
 import { CourseCard } from "../components/ui/CourseCard";
-import { MyRequestsPanel } from "../components/ui/MyRequestsPanel";
-import { mockFacultyDashboardResponse } from "../data/facultyDashboard";
-import { mockFacultyAllocations, selectFacultyCourseCards } from "../data/facultyAllocations";
-import { getFacultyRequests, selectFacultyRequestListItems } from "../data/facultyRequests";
+import { NotificationsPanel } from "../components/ui/NotificationsPanel";
+import { useNotifications } from "../hooks/useNotifications";
+import { selectFacultyCourseCards } from "../data/facultyAllocations";
+import { apiGet, apiGetAllPages } from "../lib/auth";
+import { ApiError, apiErrorMessage } from "../lib/api";
+import type { FacultyCourseAllocation, FacultyDashboardResponse } from "../types/api";
+import formStyles from "../components/ui/Form.module.css";
 import styles from "./FacultyDashboardPage.module.css";
 
-const RAIL_ITEMS: RailNavItem[] = [
-  { id: "dashboard", label: "Dashboard", icon: IconGrid, href: "/faculty/dashboard" },
-  { id: "allocations", label: "Allocations", icon: IconBook, href: "/faculty/allocations" },
-  { id: "profile", label: "Profile", icon: IconPerson, href: "/faculty/profile" },
-];
-
 export function FacultyDashboardPage() {
-  const dashboard = mockFacultyDashboardResponse;
-  const ongoingAllocations = mockFacultyAllocations.filter((a) => a.status === "Ongoing");
+  const navigate = useNavigate();
+  const [dashboard, setDashboard] = useState<FacultyDashboardResponse | null>(null);
+  const [ongoingAllocations, setOngoingAllocations] = useState<FacultyCourseAllocation[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const notifications = useNotifications();
+
+  useEffect(() => {
+    let cancelled = false;
+    Promise.all([
+      apiGet<FacultyDashboardResponse>("/faculty/dashboard/"),
+      apiGetAllPages<FacultyCourseAllocation>("/faculty/allocations/?status=Ongoing"),
+    ])
+      .then(([dashboardRes, allocationsRes]) => {
+        if (cancelled) return;
+        setDashboard(dashboardRes);
+        setOngoingAllocations(allocationsRes);
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        if (err instanceof ApiError && err.status === 401) {
+          navigate("/login", { replace: true });
+          return;
+        }
+        setError(apiErrorMessage(err));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [navigate]);
+
+  if (error) {
+    return (
+      <DashboardShell
+        railItems={FACULTY_RAIL_ITEMS}
+        activeRailId="dashboard"
+        homeHref="/faculty/dashboard"
+        profileHref="/faculty/profile"
+        avatarInitials="—"
+        pageTitle="Faculty dashboard"
+        subtitle=""
+      >
+        <div className={formStyles.errorBanner}>{error}</div>
+      </DashboardShell>
+    );
+  }
+
+  if (!dashboard) {
+    return (
+      <DashboardShell
+        railItems={FACULTY_RAIL_ITEMS}
+        activeRailId="dashboard"
+        homeHref="/faculty/dashboard"
+        profileHref="/faculty/profile"
+        avatarInitials="—"
+        pageTitle="Faculty dashboard"
+        subtitle=""
+      >
+        <p className={styles.empty}>Loading dashboard…</p>
+      </DashboardShell>
+    );
+  }
+
   const courseCards = selectFacultyCourseCards(ongoingAllocations);
-  const requestItems = selectFacultyRequestListItems(getFacultyRequests());
   const avatarInitials = `${dashboard.faculty.first_name[0]}${dashboard.faculty.last_name[0]}`.toUpperCase();
-  const [requestsOpen, setRequestsOpen] = useState(true);
 
   return (
     <DashboardShell
-      railItems={RAIL_ITEMS}
+      railItems={FACULTY_RAIL_ITEMS}
       activeRailId="dashboard"
       homeHref="/faculty/dashboard"
+      profileHref="/faculty/profile"
       avatarInitials={avatarInitials}
+      avatarSrc={dashboard.faculty.image}
       pageTitle="Faculty dashboard"
       subtitle={dashboard.faculty.institutional_email}
       sidePanel={
-        <MyRequestsPanel
-          items={requestItems}
-          open={requestsOpen}
-          onClose={() => setRequestsOpen(false)}
-          onOpen={() => setRequestsOpen(true)}
+        <NotificationsPanel
+          items={notifications.items}
+          unreadCount={notifications.unreadCount}
+          open={notificationsOpen}
+          onClose={() => setNotificationsOpen(false)}
+          onOpen={() => setNotificationsOpen(true)}
+          onMarkRead={notifications.markRead}
+          onMarkAllRead={notifications.markAllRead}
+          onDismiss={notifications.dismiss}
         />
       }
     >

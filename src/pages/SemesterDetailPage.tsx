@@ -1,65 +1,39 @@
-import { useState } from "react";
-import { Link, useParams } from "react-router-dom";
-import { DashboardShell } from "../components/layout/DashboardShell";
-import type { RailNavItem } from "../components/layout/Rail";
-import {
-  IconBars,
-  IconBook,
-  IconBuilding,
-  IconCalendar,
-  IconClipboard,
-  IconGraduationCap,
-  IconHourglass,
-  IconInbox,
-  IconLayers,
-  IconGrid,
-  IconPeople,
-  IconPerson,
-  IconScroll,
-  IconUserCheck,
-} from "../components/icons/Icons";
+import { useEffect, useState } from "react";
+import { Link, useNavigate, useParams } from "react-router-dom";
+import { useAdminPageConfig } from "../components/layout/AdminShellContext";
 import { Breadcrumbs } from "../components/ui/Breadcrumbs";
 import { Panel } from "../components/ui/Panel";
 import { Tag } from "../components/ui/Tag";
-import { ALLOCATION_STATUS_TONE, mockAllocations } from "../data/allocationDirectory";
-import { SEMESTER_STATUS_TONE } from "../data/classDirectory";
-import { mockCourses } from "../data/courseDirectory";
-import { mockEnrollments } from "../data/enrollmentDirectory";
-import {
-  getSemesterView,
-  isActivationDeadlineLocked,
-  isClosingDeadlineLocked,
-  isSessionLocked,
-  setSemesterActivationDeadline,
-  setSemesterClosingDeadline,
-  setSemesterSession,
-} from "../data/semesterDirectory";
-import { mockSessions } from "../data/sessionDirectory";
-import { generateTranscripts, mockTranscripts, type TranscriptStudentError } from "../data/transcriptDirectory";
-import { mockAdminDashboardResponse } from "../data/adminDashboard";
-import { mockCurrentSession } from "../data/session";
+import { useToast } from "../components/ui/ToastContext";
+import { apiGet, apiGetAllPages, apiMutate, cached, invalidateCache } from "../lib/auth";
+import { ApiError, apiErrorMessage, apiFormErrors } from "../lib/api";
+import type {
+  AdminClass,
+  AdminCourse,
+  AdminCourseAllocationSummary,
+  AdminEnrollmentSummary,
+  AdminSemester,
+  AdminSession,
+  AdminTranscript,
+  CourseAllocationStatus,
+  SemesterStatus,
+} from "../types/api";
+import type { StatusTone } from "../types/dashboard";
 import formStyles from "../components/ui/Form.module.css";
 import detailStyles from "./PersonDetailPage.module.css";
 
-const RAIL_ITEMS: RailNavItem[] = [
-  { id: "dashboard", label: "Dashboard", icon: IconGrid, href: "/admin/dashboard" },
-  { id: "faculty", label: "Faculty", icon: IconPerson, href: "/admin/faculty" },
-  { id: "students", label: "Students", icon: IconPeople, href: "/admin/students" },
-  { id: "departments", label: "Departments", icon: IconBuilding, href: "/admin/departments" },
-  { id: "programs", label: "Programs", icon: IconLayers, href: "/admin/programs" },
-  { id: "courses", label: "Courses", icon: IconBook, href: "/admin/courses" },
-  { id: "classes", label: "Classes", icon: IconGraduationCap, href: "/admin/classes" },
-  { id: "allocations", label: "Allocations", icon: IconClipboard, href: "/admin/allocations" },
-  { id: "enrollments", label: "Enrollments", icon: IconUserCheck, href: "/admin/enrollments" },
-  { id: "sessions", label: "Sessions", icon: IconCalendar, href: "/admin/sessions" },
-  { id: "semesters", label: "Semesters", icon: IconHourglass, href: "/admin/semesters" },
-  { id: "transcripts", label: "Transcripts", icon: IconScroll, href: "/admin/transcripts" },
-  { id: "requests", label: "Requests", icon: IconInbox, href: "/admin/requests" },
-  { id: "reports", label: "Reports", icon: IconBars },
-];
+const SEMESTER_STATUS_TONE: Record<SemesterStatus, StatusTone> = {
+  Inactive: "warning",
+  Active: "good",
+  Completed: "critical",
+};
+const ALLOCATION_STATUS_TONE: Record<CourseAllocationStatus, StatusTone> = {
+  Ongoing: "good",
+  Completed: "good",
+  Inactive: "warning",
+  Cancelled: "critical",
+};
 
-/** datetime-local inputs want "YYYY-MM-DDTHH:mm" with no timezone — this is local time, same as
- * what the input will hand back on change. */
 function toLocalInputValue(iso: string | null): string {
   if (!iso) return "";
   const d = new Date(iso);
@@ -67,32 +41,174 @@ function toLocalInputValue(iso: string | null): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
+function isActivationDeadlineLocked(activationDeadline: string | null): boolean {
+  return activationDeadline !== null && new Date(activationDeadline) < new Date();
+}
+
+function isClosingDeadlineLocked(activationDeadline: string | null, status: SemesterStatus): boolean {
+  if (!activationDeadline) return true;
+  const activationPassed = new Date(activationDeadline) < new Date();
+  if (!activationPassed && status === "Inactive") return true;
+  return false;
+}
+
+function validateDeadline(iso: string): string | null {
+  const value = new Date(iso);
+  const now = new Date();
+  if (value < now) return "Deadline cannot be in the past.";
+  if (value.getTime() - now.getTime() < 7 * 60 * 1000) return "Deadline must be at least a few minutes from now.";
+  return null;
+}
+
 export function SemesterDetailPage() {
   const { semesterId } = useParams<{ semesterId: string }>();
-  const semester = semesterId ? getSemesterView(Number(semesterId)) : undefined;
-  const admin = mockAdminDashboardResponse.admin;
-  const avatarInitials = `${admin.first_name[0]}${admin.last_name[0]}`.toUpperCase();
+  const navigate = useNavigate();
+  const { showToast } = useToast();
+  const [semester, setSemester] = useState<AdminSemester | null>(null);
+  const [classes, setClasses] = useState<AdminClass[]>([]);
+  const [sessions, setSessions] = useState<AdminSession[]>([]);
+  const [courses, setCourses] = useState<AdminCourse[]>([]);
+  const [allocations, setAllocations] = useState<AdminCourseAllocationSummary[]>([]);
+  const [ungradedCount, setUngradedCount] = useState(0);
+  const [enrolledCount, setEnrolledCount] = useState(0);
+  const [hasTranscripts, setHasTranscripts] = useState(false);
+  const [notFound, setNotFound] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [refreshKey, setRefreshKey] = useState(0);
 
-  const [sessionInput, setSessionInput] = useState(() => (semester?.session !== null ? String(semester?.session) : ""));
-  const [activationInput, setActivationInput] = useState(() => toLocalInputValue(semester?.activation_deadline ?? null));
-  const [closingInput, setClosingInput] = useState(() => toLocalInputValue(semester?.closing_deadline ?? null));
-  const [message, setMessage] = useState<string | null>(null);
+  const [sessionInput, setSessionInput] = useState("");
+  const [activationInput, setActivationInput] = useState("");
+  const [closingInput, setClosingInput] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [studentErrors, setStudentErrors] = useState<TranscriptStudentError[] | null>(null);
-  const [, setTick] = useState(0);
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
 
-  if (!semester) {
+  useAdminPageConfig("Semester");
+
+  useEffect(() => {
+    if (!semesterId) return;
+    let cancelled = false;
+    Promise.all([
+      apiGet<AdminSemester>(`/admin/semesters/${semesterId}/`),
+      cached("admin:classes", () => apiGetAllPages<AdminClass>("/admin/classes/")),
+      cached("admin:sessions", () => apiGetAllPages<AdminSession>("/admin/sessions/")),
+      cached("admin:courses", () => apiGetAllPages<AdminCourse>("/admin/courses/")),
+      apiGetAllPages<AdminCourseAllocationSummary>(`/admin/allocations/?semester=${semesterId}`),
+      apiGetAllPages<AdminEnrollmentSummary>(`/admin/enrollments/?allocation__semester=${semesterId}`),
+      apiGetAllPages<AdminTranscript>(`/admin/transcripts/?semester=${semesterId}`),
+    ])
+      .then(([semRes, classesRes, sessionsRes, coursesRes, allocRes, enrollRes, transcriptRes]) => {
+        if (cancelled) return;
+        setSemester(semRes);
+        setClasses(classesRes);
+        setSessions(sessionsRes);
+        setCourses(coursesRes);
+        setAllocations(allocRes);
+        setEnrolledCount(enrollRes.length);
+        setUngradedCount(enrollRes.filter((e) => e.result === null).length);
+        setHasTranscripts(transcriptRes.length > 0);
+        setSessionInput(semRes.session !== null ? String(semRes.session) : "");
+        setActivationInput(toLocalInputValue(semRes.activation_deadline));
+        setClosingInput(toLocalInputValue(semRes.closing_deadline));
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        if (err instanceof ApiError && err.status === 404) {
+          setNotFound(true);
+          return;
+        }
+        if (err instanceof ApiError && err.status === 401) {
+          navigate("/login", { replace: true });
+          return;
+        }
+        setLoadError(apiErrorMessage(err));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [semesterId, navigate, refreshKey]);
+
+  async function handleSetSession(e: React.FormEvent) {
+    e.preventDefault();
+    if (!semesterId) return;
+    setError(null);
+    setFieldErrors({});
+    try {
+      await apiMutate<AdminSemester>(`/admin/semesters/${semesterId}/`, "PATCH", {
+        session: sessionInput ? Number(sessionInput) : null,
+      });
+      invalidateCache("admin:classes");
+      showToast("Session updated.");
+      setRefreshKey((k) => k + 1);
+    } catch (err) {
+      const { banner, fields } = apiFormErrors(err);
+      setError(banner);
+      setFieldErrors(fields);
+    }
+  }
+
+  async function handleSetActivation(e: React.FormEvent) {
+    e.preventDefault();
+    if (!semesterId) return;
+    setError(null);
+    setFieldErrors({});
+    const iso = new Date(activationInput).toISOString();
+    const validationError = validateDeadline(iso);
+    if (validationError) {
+      setFieldErrors({ activation_deadline: validationError });
+      return;
+    }
+    try {
+      await apiMutate<AdminSemester>(`/admin/semesters/${semesterId}/`, "PATCH", { activation_deadline: iso });
+      showToast("Activation deadline set. The move to Active happens automatically at that time (semester_activation_task).");
+      setRefreshKey((k) => k + 1);
+    } catch (err) {
+      const { banner, fields } = apiFormErrors(err);
+      setError(banner);
+      setFieldErrors(fields);
+    }
+  }
+
+  async function handleSetClosing(e: React.FormEvent) {
+    e.preventDefault();
+    if (!semesterId) return;
+    setError(null);
+    setFieldErrors({});
+    const iso = new Date(closingInput).toISOString();
+    const validationError = validateDeadline(iso);
+    if (validationError) {
+      setFieldErrors({ closing_deadline: validationError });
+      return;
+    }
+    try {
+      await apiMutate<AdminSemester>(`/admin/semesters/${semesterId}/`, "PATCH", { closing_deadline: iso });
+      showToast("Closing deadline set. The move to Completed happens automatically at that time (semester_closing_task).");
+      setRefreshKey((k) => k + 1);
+    } catch (err) {
+      const { banner, fields } = apiFormErrors(err);
+      setError(banner);
+      setFieldErrors(fields);
+    }
+  }
+
+  async function handleGenerateTranscripts() {
+    if (!semesterId) return;
+    setError(null);
+    setFieldErrors({});
+    try {
+      const result = await apiMutate<{ created?: unknown[] }>(`/admin/semesters/${semesterId}/transcripts-create/`, "POST", {
+        confirm: true,
+      });
+      showToast("Transcripts generated.");
+      void result;
+      setRefreshKey((k) => k + 1);
+    } catch (err) {
+      setError(apiErrorMessage(err));
+    }
+  }
+
+  if (notFound) {
     return (
-      <DashboardShell
-        railItems={RAIL_ITEMS}
-        activeRailId="semesters"
-        homeHref="/admin/dashboard"
-        avatarInitials={avatarInitials}
-        pageTitle="Semester"
-        sessionLabel={mockCurrentSession}
-        subtitle={admin.institutional_email}
-        profileHref="/admin/profile"
-      >
+      <>
         <Breadcrumbs
           items={[
             { label: "Dashboard", href: "/admin/dashboard" },
@@ -101,103 +217,52 @@ export function SemesterDetailPage() {
           ]}
         />
         <p className={detailStyles.notFound}>Semester {semesterId} was not found.</p>
-      </DashboardShell>
+      </>
     );
   }
 
-  const allocations = mockAllocations.filter((a) => a.semester === semester.semesterId);
-  const allocationIds = allocations.map((a) => a.allocation_id);
-  const semesterEnrollments = mockEnrollments.filter((e) => allocationIds.includes(e.allocation));
-  const ungraded = semesterEnrollments.filter((e) => e.result === null);
-
-  const sessionLocked = isSessionLocked(semester);
-  const activationLocked = isActivationDeadlineLocked(semester);
-  const closingLocked = isClosingDeadlineLocked(semester);
-
-  function handleSetSession(e: React.FormEvent) {
-    e.preventDefault();
-    setSemesterSession(semester!.semesterId, sessionInput ? Number(sessionInput) : null);
-    setMessage("Session updated.");
-    setError(null);
-    setTick((t) => t + 1);
+  if (loadError) {
+    return <div className={formStyles.errorBanner}>{loadError}</div>;
   }
 
-  function handleSetActivation(e: React.FormEvent) {
-    e.preventDefault();
-    const iso = new Date(activationInput).toISOString();
-    const result = setSemesterActivationDeadline(semester!.semesterId, iso);
-    if (typeof result === "string") {
-      setError(result);
-      return;
-    }
-    setError(null);
-    setMessage("Activation deadline set. The move to Active happens automatically at that time (semester_activation_task) — not modeled here, no scheduler in this mock.");
-    setTick((t) => t + 1);
+  if (!semester) {
+    return <p className={detailStyles.empty}>Loading semester…</p>;
   }
 
-  function handleSetClosing(e: React.FormEvent) {
-    e.preventDefault();
-    const iso = new Date(closingInput).toISOString();
-    const result = setSemesterClosingDeadline(semester!.semesterId, iso, ungraded.length);
-    if (typeof result === "string") {
-      setError(result);
-      return;
-    }
-    setError(null);
-    setMessage("Closing deadline set. The move to Completed happens automatically at that time (semester_closing_task) — not modeled here, no scheduler in this mock.");
-    setTick((t) => t + 1);
-  }
+  const matchingClass = classes.find((c) => `${c.program}-${c.batch_year ?? "?"}` === semester.associated_class);
+  const semesterDetail = matchingClass?.scheme_of_studies?.find((s) => s.semester_id === semester.semester_id);
+  const courseCodes = semesterDetail?.semesterdetails_set.map((d) => d.course).filter((c): c is string => c !== null) ?? [];
 
-  function handleGenerateTranscripts() {
-    setStudentErrors(null);
-    const result = generateTranscripts(semester!.semesterId);
-    if (result.ok) {
-      setError(null);
-      setMessage(`${result.created.length} transcript${result.created.length === 1 ? "" : "s"} generated.`);
-      setTick((t) => t + 1);
-      return;
-    }
-    setMessage(null);
-    if ("studentErrors" in result) {
-      setError("Some students aren't ready — nothing was generated.");
-      setStudentErrors(result.studentErrors);
-    } else {
-      setError(result.message);
-    }
-  }
+  const activationLocked = isActivationDeadlineLocked(semester.activation_deadline);
+  const closingLocked = isClosingDeadlineLocked(semester.activation_deadline, semester.status);
+  const sessionLocked = activationLocked;
 
   return (
-    <DashboardShell
-      railItems={RAIL_ITEMS}
-      activeRailId="semesters"
-      homeHref="/admin/dashboard"
-      avatarInitials={avatarInitials}
-      pageTitle="Semester"
-      sessionLabel={mockCurrentSession}
-      subtitle={admin.institutional_email}
-      profileHref="/admin/profile"
-    >
+    <>
       <Breadcrumbs
         items={[
           { label: "Dashboard", href: "/admin/dashboard" },
           { label: "Semesters", href: "/admin/semesters" },
-          { label: `${semester.classLabel} · Semester ${semester.semesterNo}` },
+          { label: `${semester.associated_class} · Semester ${semester.semester_no}` },
         ]}
       />
 
-      {message && <div className={formStyles.banner}>{message}</div>}
       {error && <div className={formStyles.errorBanner}>{error}</div>}
 
       <div className={detailStyles.profileCard}>
         <div className={detailStyles.profileMain}>
           <h1 className={detailStyles.name}>
-            {semester.classLabel} · Semester {semester.semesterNo}
+            {semester.associated_class} · Semester {semester.semester_no}
           </h1>
           <p className={detailStyles.subline}>
-            Semester #{semester.semesterId} ·{" "}
-            <Link to={`/admin/classes/${semester.classId}`} className={detailStyles.back}>
-              View class
-            </Link>
+            Semester #{semester.semester_id} ·{" "}
+            {matchingClass ? (
+              <Link to={`/admin/classes/${matchingClass.class_id}`} className={detailStyles.back}>
+                View class
+              </Link>
+            ) : (
+              semester.associated_class
+            )}
           </p>
         </div>
         <Tag tone={SEMESTER_STATUS_TONE[semester.status]}>{semester.status}</Tag>
@@ -206,16 +271,17 @@ export function SemesterDetailPage() {
       <Panel title="Term">
         <form className={detailStyles.panelBody} onSubmit={handleSetSession}>
           <div className={formStyles.row}>
-            <div className={formStyles.field}>
+            <div className={formStyles.field} data-invalid={fieldErrors.session ? "true" : undefined}>
               <label htmlFor="session">Session</label>
               <select id="session" value={sessionInput} onChange={(e) => setSessionInput(e.target.value)} disabled={sessionLocked}>
                 <option value="">Unassigned</option>
-                {mockSessions.map((s) => (
+                {sessions.map((s) => (
                   <option key={s.id} value={s.id}>
                     {s.period} {s.year}
                   </option>
                 ))}
               </select>
+              {fieldErrors.session && <span className={formStyles.fieldError}>{fieldErrors.session}</span>}
             </div>
             <div className={formStyles.field}>
               <label>&nbsp;</label>
@@ -235,7 +301,7 @@ export function SemesterDetailPage() {
       <Panel title="Activation">
         <form className={detailStyles.panelBody} onSubmit={handleSetActivation}>
           <div className={formStyles.row}>
-            <div className={formStyles.field}>
+            <div className={formStyles.field} data-invalid={fieldErrors.activation_deadline ? "true" : undefined}>
               <label htmlFor="activation_deadline">Activation deadline</label>
               <input
                 id="activation_deadline"
@@ -245,6 +311,7 @@ export function SemesterDetailPage() {
                 disabled={activationLocked}
                 required
               />
+              {fieldErrors.activation_deadline && <span className={formStyles.fieldError}>{fieldErrors.activation_deadline}</span>}
             </div>
             <div className={formStyles.field}>
               <label>&nbsp;</label>
@@ -264,7 +331,7 @@ export function SemesterDetailPage() {
       <Panel title="Closing">
         <form className={detailStyles.panelBody} onSubmit={handleSetClosing}>
           <div className={formStyles.row}>
-            <div className={formStyles.field}>
+            <div className={formStyles.field} data-invalid={fieldErrors.closing_deadline ? "true" : undefined}>
               <label htmlFor="closing_deadline">Closing deadline</label>
               <input
                 id="closing_deadline"
@@ -274,6 +341,7 @@ export function SemesterDetailPage() {
                 disabled={closingLocked}
                 required
               />
+              {fieldErrors.closing_deadline && <span className={formStyles.fieldError}>{fieldErrors.closing_deadline}</span>}
             </div>
             <div className={formStyles.field}>
               <label>&nbsp;</label>
@@ -285,8 +353,8 @@ export function SemesterDetailPage() {
           <span className={formStyles.hint}>
             {closingLocked
               ? "Locked until this semester has an activation deadline and has actually activated."
-              : ungraded.length > 0
-                ? `${ungraded.length} of ${semesterEnrollments.length} enrollments here still need a result before this can be set.`
+              : ungradedCount > 0
+                ? `${ungradedCount} of ${enrolledCount} enrollments here still need a result before this can be set.`
                 : "All enrollments here already have a result — ready to close."}
           </span>
         </form>
@@ -296,21 +364,11 @@ export function SemesterDetailPage() {
         <Panel title="Transcripts">
           <div className={detailStyles.panelBody}>
             <span className={formStyles.hint}>
-              Mirrors POST /api/admin/semesters/{semester.semesterId}/transcripts-create/
+              Mirrors POST /api/admin/semesters/{semester.semester_id}/transcripts-create/
               (TranscriptBulkCreateAPIView) — only shown here because closing_deadline is set,
               matching when the real transcript_generation_url actually appears on this resource.
-              {mockTranscripts.some((t) => t.semester === semester.semesterId) &&
-                " Transcripts already exist for at least one student here."}
+              {hasTranscripts && " Transcripts already exist for at least one student here."}
             </span>
-            {studentErrors && (
-              <ul>
-                {studentErrors.map((e) => (
-                  <li key={e.student}>
-                    {e.student}: {e.message}
-                  </li>
-                ))}
-              </ul>
-            )}
             <div className={formStyles.actions}>
               <button type="button" className={formStyles.primaryButton} onClick={handleGenerateTranscripts}>
                 Generate transcripts
@@ -325,12 +383,12 @@ export function SemesterDetailPage() {
 
       <Panel title="Scheme of studies" hint="Read-only here — edit from the class page">
         <div className={detailStyles.panelBody}>
-          {semester.courseCodes.length === 0 ? (
+          {courseCodes.length === 0 ? (
             <span className={formStyles.hint}>No courses assigned yet.</span>
           ) : (
             <ul>
-              {semester.courseCodes.map((code) => {
-                const course = mockCourses.find((c) => c.course_code === code);
+              {courseCodes.map((code) => {
+                const course = courses.find((c) => c.course_code === code);
                 return (
                   <li key={code}>
                     <Link to={`/admin/courses/${code}`} className={detailStyles.back}>
@@ -363,6 +421,6 @@ export function SemesterDetailPage() {
           )}
         </div>
       </Panel>
-    </DashboardShell>
+    </>
   );
 }

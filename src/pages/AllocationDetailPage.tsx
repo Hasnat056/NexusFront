@@ -1,83 +1,147 @@
-import { useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
-import { DashboardShell } from "../components/layout/DashboardShell";
-import type { RailNavItem } from "../components/layout/Rail";
-import {
-  IconScroll,
-  IconHourglass,
-  IconInbox,
-  IconBars,
-  IconBook,
-  IconBuilding,
-  IconCalendar,
-  IconClipboard,
-  IconGraduationCap,
-  IconLayers,
-  IconGrid,
-  IconPeople,
-  IconPerson,
-  IconUserCheck,
-} from "../components/icons/Icons";
+import { useEffect, useMemo, useState } from "react";
+import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
+import { useAdminPageConfig } from "../components/layout/AdminShellContext";
 import { Breadcrumbs } from "../components/ui/Breadcrumbs";
 import { Tag } from "../components/ui/Tag";
-import {
-  ALLOCATION_STATUS_TONE,
-  deleteAllocation,
-  eligibleSemestersForAllocation,
-  getAllocationById,
-  isAllocationEditable,
-  semesterRefById,
-  updateAllocation,
-  type AllocationFormValue,
-} from "../data/allocationDirectory";
-import { mockFacultyDirectory } from "../data/facultyDirectory";
-import { mockAdminDashboardResponse } from "../data/adminDashboard";
-import { mockCurrentSession } from "../data/session";
+import { useToast } from "../components/ui/ToastContext";
+import { apiGet, apiGetAllPages, apiMutate, cached, invalidateCache } from "../lib/auth";
+import { ApiError, apiErrorMessage, apiFormErrors } from "../lib/api";
+import { eligibleSemestersForAllocation, semesterChoice } from "../lib/allocationEligibility";
+import type {
+  AdminClass,
+  AdminCourseAllocationSummary,
+  AdminFacultyListItem,
+  AdminSemester,
+  AdminSession,
+  CourseAllocationStatus,
+} from "../types/api";
+import type { StatusTone } from "../types/dashboard";
 import formStyles from "../components/ui/Form.module.css";
 import styles from "./PersonDetailPage.module.css";
 
-const RAIL_ITEMS: RailNavItem[] = [
-  { id: "dashboard", label: "Dashboard", icon: IconGrid, href: "/admin/dashboard" },
-  { id: "faculty", label: "Faculty", icon: IconPerson, href: "/admin/faculty" },
-  { id: "students", label: "Students", icon: IconPeople, href: "/admin/students" },
-  { id: "departments", label: "Departments", icon: IconBuilding, href: "/admin/departments" },
-  { id: "programs", label: "Programs", icon: IconLayers, href: "/admin/programs" },
-  { id: "courses", label: "Courses", icon: IconBook, href: "/admin/courses" },
-  { id: "classes", label: "Classes", icon: IconGraduationCap, href: "/admin/classes" },
-  { id: "allocations", label: "Allocations", icon: IconClipboard, href: "/admin/allocations" },
-  { id: "enrollments", label: "Enrollments", icon: IconUserCheck, href: "/admin/enrollments" },
-  { id: "sessions", label: "Sessions", icon: IconCalendar, href: "/admin/sessions" },
-  { id: "semesters", label: "Semesters", icon: IconHourglass, href: "/admin/semesters" },
-  { id: "transcripts", label: "Transcripts", icon: IconScroll, href: "/admin/transcripts" },
-  { id: "requests", label: "Requests", icon: IconInbox, href: "/admin/requests" },
-  { id: "reports", label: "Reports", icon: IconBars },
-];
+const ALLOCATION_STATUS_TONE: Record<CourseAllocationStatus, StatusTone> = {
+  Inactive: "warning",
+  Ongoing: "good",
+  Completed: "critical",
+  Cancelled: "critical",
+};
 
 export function AllocationDetailPage() {
   const { allocationId } = useParams<{ allocationId: string }>();
   const navigate = useNavigate();
-  const record = allocationId ? getAllocationById(Number(allocationId)) : undefined;
-  const admin = mockAdminDashboardResponse.admin;
-  const avatarInitials = `${admin.first_name[0]}${admin.last_name[0]}`.toUpperCase();
+  const location = useLocation();
+  const { showToast } = useToast();
+  const viewPath = `/admin/allocations/${allocationId}`;
+  const editing = location.pathname.endsWith("/edit");
+  const [record, setRecord] = useState<AdminCourseAllocationSummary | null>(null);
+  const [faculty, setFaculty] = useState<AdminFacultyListItem[]>([]);
+  const [semesters, setSemesters] = useState<AdminSemester[]>([]);
+  const [sessions, setSessions] = useState<AdminSession[]>([]);
+  const [classes, setClasses] = useState<AdminClass[]>([]);
+  const [notFound, setNotFound] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [refreshKey, setRefreshKey] = useState(0);
 
-  const [editing, setEditing] = useState(false);
-  const [formValue, setFormValue] = useState<AllocationFormValue | null>(null);
-  const [message, setMessage] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [formValue, setFormValue] = useState<{ faculty: string; course: string; semester: string } | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [confirmingDelete, setConfirmingDelete] = useState(false);
 
-  if (!record) {
+  useAdminPageConfig(editing ? "Edit allocation" : "Allocation");
+
+  useEffect(() => {
+    if (!allocationId) return;
+    let cancelled = false;
+    Promise.all([
+      apiGet<AdminCourseAllocationSummary>(`/admin/allocations/${allocationId}/`),
+      cached("admin:all-faculty", () => apiGetAllPages<AdminFacultyListItem>("/admin/faculty/")),
+      apiGetAllPages<AdminSemester>("/admin/semesters/"),
+      cached("admin:sessions", () => apiGetAllPages<AdminSession>("/admin/sessions/")),
+      cached("admin:classes", () => apiGetAllPages<AdminClass>("/admin/classes/")),
+    ])
+      .then(([recordRes, facultyRes, semestersRes, sessionsRes, classesRes]) => {
+        if (cancelled) return;
+        setRecord(recordRes);
+        setFaculty(facultyRes);
+        setSemesters(semestersRes);
+        setSessions(sessionsRes);
+        setClasses(classesRes);
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        if (err instanceof ApiError && err.status === 404) {
+          setNotFound(true);
+          return;
+        }
+        if (err instanceof ApiError && err.status === 401) {
+          navigate("/login", { replace: true });
+          return;
+        }
+        setLoadError(apiErrorMessage(err));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [allocationId, navigate, refreshKey]);
+
+  const eligibleSemesters = useMemo(() => eligibleSemestersForAllocation(semesters, sessions, classes), [semesters, sessions, classes]);
+  const currentChoice = record ? semesterChoice(record.semester, semesters, classes) : undefined;
+  const semesterChoices =
+    currentChoice && !eligibleSemesters.some((s) => s.semesterId === currentChoice.semesterId)
+      ? [currentChoice, ...eligibleSemesters]
+      : eligibleSemesters;
+  const selectedSemester = formValue ? semesterChoice(Number(formValue.semester), semesters, classes) : undefined;
+
+  useEffect(() => {
+    if (editing && record) {
+      setFormValue({ faculty: record.faculty, course: record.course, semester: String(record.semester) });
+      setActionError(null);
+      setFieldErrors({});
+    }
+  }, [editing, record]);
+
+  async function handleSave(e: React.FormEvent) {
+    e.preventDefault();
+    if (!formValue || !allocationId) return;
+    setActionError(null);
+    setFieldErrors({});
+    try {
+      await apiMutate<AdminCourseAllocationSummary>(`/admin/allocations/${allocationId}/`, "PATCH", {
+        faculty: formValue.faculty,
+        course: formValue.course,
+        semester: Number(formValue.semester),
+      });
+      invalidateCache("admin:allocations");
+      navigate(viewPath);
+      showToast("Allocation updated.");
+      setRefreshKey((k) => k + 1);
+    } catch (err) {
+      const { banner, fields } = apiFormErrors(err);
+      setActionError(banner);
+      setFieldErrors(fields);
+    }
+  }
+
+  async function handleDelete() {
+    if (!confirmingDelete) {
+      setConfirmingDelete(true);
+      return;
+    }
+    if (!allocationId) return;
+    setActionError(null);
+    try {
+      await apiMutate(`/admin/allocations/${allocationId}/`, "DELETE");
+      invalidateCache("admin:allocations");
+      navigate("/admin/allocations");
+    } catch (err) {
+      setActionError(apiErrorMessage(err));
+      setConfirmingDelete(false);
+    }
+  }
+
+  if (notFound) {
     return (
-      <DashboardShell
-        railItems={RAIL_ITEMS}
-        activeRailId="allocations"
-        homeHref="/admin/dashboard"
-        avatarInitials={avatarInitials}
-        pageTitle="Allocation"
-        sessionLabel={mockCurrentSession}
-        subtitle={admin.institutional_email}
-        profileHref="/admin/profile"
-      >
+      <>
         <Breadcrumbs
           items={[
             { label: "Dashboard", href: "/admin/dashboard" },
@@ -86,83 +150,57 @@ export function AllocationDetailPage() {
           ]}
         />
         <p className={styles.notFound}>Allocation {allocationId} was not found.</p>
-      </DashboardShell>
+      </>
     );
   }
 
-  const semester = semesterRefById(record.semester);
-  const editable = isAllocationEditable(record);
-  const eligibleSemesters = eligibleSemestersForAllocation();
-  const semesterChoices = semester && !eligibleSemesters.some((s) => s.semesterId === semester.semesterId)
-    ? [semester, ...eligibleSemesters]
-    : eligibleSemesters;
-  const selectedSemester = formValue ? semesterRefById(Number(formValue.semester)) : undefined;
-
-  function startEditing() {
-    setFormValue({ faculty: record!.faculty, course: record!.course, semester: String(record!.semester) });
-    setEditing(true);
-    setMessage(null);
-    setError(null);
+  if (loadError) {
+    return <div className={formStyles.errorBanner}>{loadError}</div>;
   }
 
-  function handleSave(e: React.FormEvent) {
-    e.preventDefault();
-    if (!formValue) return;
-    const result = updateAllocation(record!.allocation_id, formValue);
-    if (typeof result === "string") {
-      setError(result);
-      return;
-    }
-    setEditing(false);
-    setMessage("Allocation updated.");
+  if (!record) {
+    return <p className={styles.empty}>Loading allocation…</p>;
   }
 
-  function handleDelete() {
-    if (!confirmingDelete) {
-      setConfirmingDelete(true);
-      return;
-    }
-    deleteAllocation(record!.allocation_id);
-    navigate("/admin/allocations");
-  }
+  const editable = record.status === "Inactive";
 
   return (
-    <DashboardShell
-      railItems={RAIL_ITEMS}
-      activeRailId="allocations"
-      homeHref="/admin/dashboard"
-      avatarInitials={avatarInitials}
-      pageTitle={editing ? "Edit allocation" : "Allocation"}
-      sessionLabel={mockCurrentSession}
-      subtitle={admin.institutional_email}
-      profileHref="/admin/profile"
-    >
+    <>
       <Breadcrumbs
-        items={[
-          { label: "Dashboard", href: "/admin/dashboard" },
-          { label: "Allocations", href: "/admin/allocations" },
-          { label: record.course },
-        ]}
+        items={
+          editing
+            ? [
+                { label: "Dashboard", href: "/admin/dashboard" },
+                { label: "Allocations", href: "/admin/allocations" },
+                { label: record.course, href: viewPath },
+                { label: "Edit" },
+              ]
+            : [
+                { label: "Dashboard", href: "/admin/dashboard" },
+                { label: "Allocations", href: "/admin/allocations" },
+                { label: record.course },
+              ]
+        }
       />
 
-      {message && <div className={formStyles.banner}>{message}</div>}
-      {error && <div className={formStyles.errorBanner}>{error}</div>}
+      {actionError && <div className={formStyles.errorBanner}>{actionError}</div>}
 
       {editing && formValue ? (
         <form className={styles.editCard} onSubmit={handleSave}>
           <h3 className={formStyles.sectionTitle}>Allocation</h3>
           <div className={formStyles.row}>
-            <div className={formStyles.field}>
+            <div className={formStyles.field} data-invalid={fieldErrors.faculty ? "true" : undefined}>
               <label htmlFor="faculty">Faculty</label>
               <select id="faculty" value={formValue.faculty} onChange={(e) => setFormValue({ ...formValue, faculty: e.target.value })}>
-                {mockFacultyDirectory.map((f) => (
+                {faculty.map((f) => (
                   <option key={f.person.person_id} value={f.person.person_id}>
                     {f.person.person_id} — {f.person.first_name} {f.person.last_name}
                   </option>
                 ))}
               </select>
+              {fieldErrors.faculty && <span className={formStyles.fieldError}>{fieldErrors.faculty}</span>}
             </div>
-            <div className={formStyles.field}>
+            <div className={formStyles.field} data-invalid={fieldErrors.semester ? "true" : undefined}>
               <label htmlFor="semester">Semester</label>
               <select
                 id="semester"
@@ -171,12 +209,13 @@ export function AllocationDetailPage() {
               >
                 {semesterChoices.map((s) => (
                   <option key={s.semesterId} value={s.semesterId}>
-                    {s.classLabel} · Semester {s.semesterNo}
+                    {s.label}
                   </option>
                 ))}
               </select>
+              {fieldErrors.semester && <span className={formStyles.fieldError}>{fieldErrors.semester}</span>}
             </div>
-            <div className={formStyles.field}>
+            <div className={formStyles.field} data-invalid={fieldErrors.course ? "true" : undefined}>
               <label htmlFor="course">Course</label>
               <select id="course" value={formValue.course} onChange={(e) => setFormValue({ ...formValue, course: e.target.value })}>
                 <option value="">Select course…</option>
@@ -186,6 +225,7 @@ export function AllocationDetailPage() {
                   </option>
                 ))}
               </select>
+              {fieldErrors.course && <span className={formStyles.fieldError}>{fieldErrors.course}</span>}
             </div>
           </div>
           <span className={formStyles.hint}>
@@ -196,7 +236,7 @@ export function AllocationDetailPage() {
             <button type="submit" className={formStyles.primaryButton}>
               Save changes
             </button>
-            <button type="button" className={formStyles.secondaryButton} onClick={() => setEditing(false)}>
+            <button type="button" className={formStyles.secondaryButton} onClick={() => navigate(viewPath)}>
               Cancel
             </button>
           </div>
@@ -208,14 +248,21 @@ export function AllocationDetailPage() {
               {record.course} — {record.faculty}
             </h1>
             <p className={styles.subline}>
-              Allocation #{record.allocation_id} · {semester ? `${semester.classLabel} · Semester ${semester.semesterNo}` : `Semester #${record.semester}`} · {record.session}
+              Allocation #{record.allocation_id} · {currentChoice ? currentChoice.label : `Semester #${record.semester}`} ·{" "}
+              {record.session}
             </p>
           </div>
           <div className={formStyles.actions}>
             <Tag tone={ALLOCATION_STATUS_TONE[record.status]}>{record.status}</Tag>
-            <button type="button" className={formStyles.secondaryButton} onClick={startEditing} disabled={!editable}>
-              Edit
-            </button>
+            {editable ? (
+              <Link to={`${viewPath}/edit`} className={formStyles.secondaryButton}>
+                Edit
+              </Link>
+            ) : (
+              <button type="button" className={formStyles.secondaryButton} disabled>
+                Edit
+              </button>
+            )}
             <button type="button" className={formStyles.dangerButton} onClick={handleDelete} disabled={!editable}>
               {confirmingDelete ? "Confirm delete" : "Delete"}
             </button>
@@ -235,6 +282,6 @@ export function AllocationDetailPage() {
           read-only for Admin.
         </p>
       )}
-    </DashboardShell>
+    </>
   );
 }

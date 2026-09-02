@@ -1,109 +1,123 @@
-import { useMemo, useState } from "react";
-import { Link } from "react-router-dom";
-import { DashboardShell } from "../components/layout/DashboardShell";
-import type { RailNavItem } from "../components/layout/Rail";
-import {
-  IconScroll,
-  IconBars,
-  IconBook,
-  IconBuilding,
-  IconCalendar,
-  IconClipboard,
-  IconGraduationCap,
-  IconHourglass,
-  IconInbox,
-  IconLayers,
-  IconGrid,
-  IconPeople,
-  IconPerson,
-  IconUserCheck,
-} from "../components/icons/Icons";
+import { useEffect, useMemo, useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
+import { useAdminPageConfig } from "../components/layout/AdminShellContext";
 import { Panel } from "../components/ui/Panel";
 import { Table, type Column } from "../components/ui/Table";
 import { FilterBar } from "../components/ui/FilterBar";
 import { Tag } from "../components/ui/Tag";
-import { SEMESTER_STATUS_TONE, mockClasses } from "../data/classDirectory";
-import { sessionLabelForSemester } from "../data/allocationDirectory";
-import { selectAllSemesters, type AdminSemesterView } from "../data/semesterDirectory";
-import { formatSessionDateTime } from "../data/sessionDirectory";
-import { mockAdminDashboardResponse } from "../data/adminDashboard";
-import { mockCurrentSession } from "../data/session";
-import type { SemesterStatus } from "../types/api";
-import formStyles from "../components/ui/Form.module.css";
+import { apiGetAllPages, cached } from "../lib/auth";
+import { ApiError, apiErrorMessage } from "../lib/api";
+import type { AdminClass, AdminSemester, AdminSession, SemesterStatus } from "../types/api";
+import type { StatusTone } from "../types/dashboard";
 import styles from "./FacultyListPage.module.css";
 
-const RAIL_ITEMS: RailNavItem[] = [
-  { id: "dashboard", label: "Dashboard", icon: IconGrid, href: "/admin/dashboard" },
-  { id: "faculty", label: "Faculty", icon: IconPerson, href: "/admin/faculty" },
-  { id: "students", label: "Students", icon: IconPeople, href: "/admin/students" },
-  { id: "departments", label: "Departments", icon: IconBuilding, href: "/admin/departments" },
-  { id: "programs", label: "Programs", icon: IconLayers, href: "/admin/programs" },
-  { id: "courses", label: "Courses", icon: IconBook, href: "/admin/courses" },
-  { id: "classes", label: "Classes", icon: IconGraduationCap, href: "/admin/classes" },
-  { id: "allocations", label: "Allocations", icon: IconClipboard, href: "/admin/allocations" },
-  { id: "enrollments", label: "Enrollments", icon: IconUserCheck, href: "/admin/enrollments" },
-  { id: "sessions", label: "Sessions", icon: IconCalendar, href: "/admin/sessions" },
-  { id: "semesters", label: "Semesters", icon: IconHourglass, href: "/admin/semesters" },
-  { id: "transcripts", label: "Transcripts", icon: IconScroll, href: "/admin/transcripts" },
-  { id: "requests", label: "Requests", icon: IconInbox, href: "/admin/requests" },
-  { id: "reports", label: "Reports", icon: IconBars },
-];
-
 const STATUS_OPTIONS: SemesterStatus[] = ["Inactive", "Active", "Completed"];
+const SEMESTER_STATUS_TONE: Record<SemesterStatus, StatusTone> = {
+  Inactive: "warning",
+  Active: "good",
+  Completed: "critical",
+};
 
-const columns: Column<AdminSemesterView>[] = [
-  {
-    key: "class",
-    header: "Class",
-    render: (row) => (
-      <Link to={`/admin/classes/${row.classId}`} className={styles.nameLink}>
-        {row.classLabel}
-      </Link>
-    ),
-  },
-  {
-    key: "semester",
-    header: "Semester",
-    render: (row) => (
-      <Link to={`/admin/semesters/${row.semesterId}`} className={styles.nameLink}>
-        Semester {row.semesterNo}
-      </Link>
-    ),
-  },
-  { key: "session", header: "Session", render: (row) => sessionLabelForSemester(row.session) },
-  { key: "status", header: "Status", render: (row) => <Tag tone={SEMESTER_STATUS_TONE[row.status]}>{row.status}</Tag> },
-  { key: "activation", header: "Activation deadline", render: (row) => formatSessionDateTime(row.activation_deadline) },
-  { key: "closing", header: "Closing deadline", render: (row) => formatSessionDateTime(row.closing_deadline) },
-];
+function formatSessionDateTime(iso: string | null): string {
+  if (!iso) return "—";
+  return new Date(iso).toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" });
+}
+
+function classLabel(cls: Pick<AdminClass, "program" | "batch_year">): string {
+  return `${cls.program}-${cls.batch_year ?? "?"}`;
+}
 
 export function SemesterListPage() {
-  const admin = mockAdminDashboardResponse.admin;
-  const avatarInitials = `${admin.first_name[0]}${admin.last_name[0]}`.toUpperCase();
+  useAdminPageConfig("Semesters");
+  const navigate = useNavigate();
+  const [semesters, setSemesters] = useState<AdminSemester[] | null>(null);
+  const [classes, setClasses] = useState<AdminClass[]>([]);
+  const [sessions, setSessions] = useState<AdminSession[]>([]);
+  const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("");
-  const [classId, setClassId] = useState("");
+  const [associatedClass, setAssociatedClass] = useState("");
 
-  const allSemesters = useMemo(() => selectAllSemesters(), []);
+  useEffect(() => {
+    let cancelled = false;
+    Promise.all([
+      apiGetAllPages<AdminSemester>("/admin/semesters/"),
+      cached("admin:classes", () => apiGetAllPages<AdminClass>("/admin/classes/")),
+      cached("admin:sessions", () => apiGetAllPages<AdminSession>("/admin/sessions/")),
+    ])
+      .then(([semestersRes, classesRes, sessionsRes]) => {
+        if (cancelled) return;
+        setSemesters(semestersRes);
+        setClasses(classesRes);
+        setSessions(sessionsRes);
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        if (err instanceof ApiError && err.status === 401) {
+          navigate("/login", { replace: true });
+          return;
+        }
+        setError(apiErrorMessage(err));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [navigate]);
+
+  const classIdByLabel = useMemo(() => new Map(classes.map((c) => [classLabel(c), c.class_id])), [classes]);
+  const sessionLabel = (session: number | null) => {
+    if (session === null) return "—";
+    const found = sessions.find((s) => s.id === session);
+    return found ? `${found.period} ${found.year}` : `#${session}`;
+  };
+
+  const columns: Column<AdminSemester>[] = [
+    {
+      key: "class",
+      header: "Class",
+      render: (row) => {
+        const classId = classIdByLabel.get(row.associated_class);
+        return classId ? (
+          <Link to={`/admin/classes/${classId}`} className={styles.nameLink}>
+            {row.associated_class}
+          </Link>
+        ) : (
+          row.associated_class
+        );
+      },
+    },
+    {
+      key: "semester",
+      header: "Semester",
+      render: (row) => (
+        <Link to={`/admin/semesters/${row.semester_id}`} className={styles.nameLink}>
+          Semester {row.semester_no}
+        </Link>
+      ),
+    },
+    { key: "session", header: "Session", render: (row) => sessionLabel(row.session) },
+    { key: "status", header: "Status", render: (row) => <Tag tone={SEMESTER_STATUS_TONE[row.status]}>{row.status}</Tag> },
+    { key: "activation", header: "Activation deadline", render: (row) => formatSessionDateTime(row.activation_deadline) },
+    { key: "closing", header: "Closing deadline", render: (row) => formatSessionDateTime(row.closing_deadline) },
+  ];
+
   const rows = useMemo(() => {
-    return allSemesters.filter((s) => {
+    return (semesters ?? []).filter((s) => {
       if (status && s.status !== status) return false;
-      if (classId && String(s.classId) !== classId) return false;
-      if (search && !s.classLabel.toLowerCase().includes(search.toLowerCase())) return false;
+      if (associatedClass && s.associated_class !== associatedClass) return false;
+      if (search && !s.associated_class.toLowerCase().includes(search.toLowerCase())) return false;
       return true;
     });
-  }, [allSemesters, search, status, classId]);
+  }, [semesters, status, associatedClass, search]);
+
+  const classOptions = useMemo(() => Array.from(new Set(classes.map((c) => classLabel(c)))).sort(), [classes]);
+
+  if (error) {
+    return <div className={styles.empty}>{error}</div>;
+  }
 
   return (
-    <DashboardShell
-      railItems={RAIL_ITEMS}
-      activeRailId="semesters"
-      homeHref="/admin/dashboard"
-      avatarInitials={avatarInitials}
-      pageTitle="Semesters"
-      sessionLabel={mockCurrentSession}
-      subtitle={admin.institutional_email}
-      profileHref="/admin/profile"
-    >
+    <>
       <FilterBar
         searchValue={search}
         onSearchChange={setSearch}
@@ -118,25 +132,18 @@ export function SemesterListPage() {
           },
           {
             id: "class",
-            value: classId,
-            onChange: setClassId,
+            value: associatedClass,
+            onChange: setAssociatedClass,
             placeholder: "All classes",
-            options: mockClasses.map((c) => ({ value: String(c.class_id), label: `${c.program}-${c.batch_year}` })),
+            options: classOptions.map((label) => ({ value: label, label })),
           },
         ]}
       />
-      <p className={formStyles.hint}>
-        Status and class filter GET /api/admin/semesters/ directly (SemesterListAPIView.filterset_fields
-        includes associated_class); search is client-side only.
-      </p>
-
-      <Panel title="Semesters" hint={`${rows.length} of ${allSemesters.length}`}>
-        {rows.length > 0 ? (
-          <Table columns={columns} rows={rows} rowKey={(row) => String(row.semesterId)} />
-        ) : (
-          <p className={styles.empty}>No semesters match these filters.</p>
-        )}
+      <Panel title="Semesters" hint={semesters ? `${rows.length} of ${semesters.length}` : undefined}>
+        {!semesters && <p className={styles.empty}>Loading semesters…</p>}
+        {semesters && rows.length > 0 && <Table columns={columns} rows={rows} rowKey={(row) => String(row.semester_id)} />}
+        {semesters && rows.length === 0 && <p className={styles.empty}>No semesters match these filters.</p>}
       </Panel>
-    </DashboardShell>
+    </>
   );
 }

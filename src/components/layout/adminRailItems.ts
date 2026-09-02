@@ -1,0 +1,36 @@
+import type { RailNavItem } from "./Rail";
+import {
+  IconScroll,
+  IconHourglass,
+  IconInbox,
+  IconBars,
+  IconBook,
+  IconBuilding,
+  IconCalendar,
+  IconClipboard,
+  IconGraduationCap,
+  IconLayers,
+  IconGrid,
+  IconPeople,
+  IconPerson,
+  IconUserCheck,
+  IconUpload,
+} from "../icons/Icons";
+
+export const ADMIN_RAIL_ITEMS: RailNavItem[] = [
+  { id: "dashboard", label: "Dashboard", icon: IconGrid, href: "/admin/dashboard" },
+  { id: "faculty", label: "Faculty", icon: IconPerson, href: "/admin/faculty" },
+  { id: "students", label: "Students", icon: IconPeople, href: "/admin/students" },
+  { id: "departments", label: "Departments", icon: IconBuilding, href: "/admin/departments" },
+  { id: "programs", label: "Programs", icon: IconLayers, href: "/admin/programs" },
+  { id: "courses", label: "Courses", icon: IconBook, href: "/admin/courses" },
+  { id: "classes", label: "Classes", icon: IconGraduationCap, href: "/admin/classes" },
+  { id: "allocations", label: "Allocations", icon: IconClipboard, href: "/admin/allocations" },
+  { id: "enrollments", label: "Enrollments", icon: IconUserCheck, href: "/admin/enrollments" },
+  { id: "sessions", label: "Sessions", icon: IconCalendar, href: "/admin/sessions" },
+  { id: "semesters", label: "Semesters", icon: IconHourglass, href: "/admin/semesters" },
+  { id: "transcripts", label: "Transcripts", icon: IconScroll, href: "/admin/transcripts" },
+  { id: "requests", label: "Requests", icon: IconInbox, href: "/admin/requests" },
+  { id: "bulk", label: "Bulk import", icon: IconUpload, href: "/admin/bulk" },
+  { id: "reports", label: "Reports", icon: IconBars },
+];

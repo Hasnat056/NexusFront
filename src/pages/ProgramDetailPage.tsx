@@ -1,64 +1,133 @@
-import { useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
-import { DashboardShell } from "../components/layout/DashboardShell";
-import type { RailNavItem } from "../components/layout/Rail";
-import { IconScroll, IconHourglass, IconInbox, IconBars, IconBook, IconBuilding, IconCalendar, IconClipboard, IconGraduationCap, IconGrid, IconLayers, IconPeople, IconPerson, IconUserCheck } from "../components/icons/Icons";
+import { useEffect, useState } from "react";
+import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
+import { useAdminPageConfig } from "../components/layout/AdminShellContext";
 import { Breadcrumbs } from "../components/ui/Breadcrumbs";
 import { Panel } from "../components/ui/Panel";
-import { DEPARTMENTS } from "../data/academicStructure";
-import {
-  deleteProgram,
-  getProgramById,
-  programFormValueFromRecord,
-  updateProgram,
-  type ProgramFormValue,
-} from "../data/programDirectory";
-import { mockAdminDashboardResponse } from "../data/adminDashboard";
-import { mockCurrentSession } from "../data/session";
+import { useToast } from "../components/ui/ToastContext";
+import { apiGet, apiGetAllPages, apiMutate, cached, invalidateCache } from "../lib/auth";
+import { ApiError, apiErrorMessage, apiFormErrors } from "../lib/api";
+import type { AdminDepartment, AdminProgram } from "../types/api";
 import formStyles from "../components/ui/Form.module.css";
 import styles from "./PersonDetailPage.module.css";
 
-const RAIL_ITEMS: RailNavItem[] = [
-  { id: "dashboard", label: "Dashboard", icon: IconGrid, href: "/admin/dashboard" },
-  { id: "faculty", label: "Faculty", icon: IconPerson, href: "/admin/faculty" },
-  { id: "students", label: "Students", icon: IconPeople, href: "/admin/students" },
-  { id: "departments", label: "Departments", icon: IconBuilding, href: "/admin/departments" },
-  { id: "programs", label: "Programs", icon: IconLayers, href: "/admin/programs" },
-  { id: "courses", label: "Courses", icon: IconBook, href: "/admin/courses" },
-  { id: "classes", label: "Classes", icon: IconGraduationCap, href: "/admin/classes" },
-  { id: "allocations", label: "Allocations", icon: IconClipboard, href: "/admin/allocations" },
-  { id: "enrollments", label: "Enrollments", icon: IconUserCheck, href: "/admin/enrollments" },
-  { id: "sessions", label: "Sessions", icon: IconCalendar, href: "/admin/sessions" },
-  { id: "semesters", label: "Semesters", icon: IconHourglass, href: "/admin/semesters" },
-  { id: "transcripts", label: "Transcripts", icon: IconScroll, href: "/admin/transcripts" },
-  { id: "requests", label: "Requests", icon: IconInbox, href: "/admin/requests" },
-  { id: "reports", label: "Reports", icon: IconBars },
-];
+interface ProgramFormValue {
+  program_id: string;
+  program_name: string;
+  department: string;
+  total_semesters: string;
+  fee_per_semester: string;
+}
+
+function formValueFromRecord(record: AdminProgram): ProgramFormValue {
+  return {
+    program_id: record.program_id,
+    program_name: record.program_name,
+    department: record.department,
+    total_semesters: String(record.total_semesters),
+    fee_per_semester: record.fee_per_semester ? String(record.fee_per_semester) : "",
+  };
+}
 
 export function ProgramDetailPage() {
   const { programId } = useParams<{ programId: string }>();
   const navigate = useNavigate();
-  const record = programId ? getProgramById(programId) : undefined;
-  const admin = mockAdminDashboardResponse.admin;
-  const avatarInitials = `${admin.first_name[0]}${admin.last_name[0]}`.toUpperCase();
+  const location = useLocation();
+  const { showToast } = useToast();
+  const viewPath = `/admin/programs/${programId}`;
+  const editing = location.pathname.endsWith("/edit");
+  const [record, setRecord] = useState<AdminProgram | null>(null);
+  const [departments, setDepartments] = useState<AdminDepartment[]>([]);
+  const [notFound, setNotFound] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [refreshKey, setRefreshKey] = useState(0);
 
-  const [editing, setEditing] = useState(false);
   const [formValue, setFormValue] = useState<ProgramFormValue | null>(null);
-  const [message, setMessage] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [confirmingDelete, setConfirmingDelete] = useState(false);
 
-  if (!record) {
+  useAdminPageConfig(editing ? "Edit program" : "Program");
+
+  useEffect(() => {
+    if (!programId) return;
+    let cancelled = false;
+    Promise.all([
+      apiGet<AdminProgram>(`/admin/programs/${programId}/`),
+      cached("admin:departments", () => apiGetAllPages<AdminDepartment>("/admin/departments/")),
+    ])
+      .then(([programRes, departmentsRes]) => {
+        if (cancelled) return;
+        setRecord(programRes);
+        setDepartments(departmentsRes);
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        if (err instanceof ApiError && err.status === 404) {
+          setNotFound(true);
+          return;
+        }
+        if (err instanceof ApiError && err.status === 401) {
+          navigate("/login", { replace: true });
+          return;
+        }
+        setLoadError(apiErrorMessage(err));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [programId, navigate, refreshKey]);
+
+  useEffect(() => {
+    if (editing && record) {
+      setFormValue(formValueFromRecord(record));
+      setActionError(null);
+      setFieldErrors({});
+    }
+  }, [editing, record]);
+
+  async function handleSave(e: React.FormEvent) {
+    e.preventDefault();
+    if (!formValue || !programId) return;
+    setActionError(null);
+    setFieldErrors({});
+    try {
+      await apiMutate<AdminProgram>(`/admin/programs/${programId}/`, "PATCH", {
+        program_name: formValue.program_name,
+        department: formValue.department,
+        total_semesters: Number(formValue.total_semesters) || 8,
+        fee_per_semester: formValue.fee_per_semester ? Number(formValue.fee_per_semester) : null,
+      });
+      invalidateCache("admin:programs");
+      navigate(viewPath);
+      showToast("Program updated.");
+      setRefreshKey((k) => k + 1);
+    } catch (err) {
+      const { banner, fields } = apiFormErrors(err);
+      setActionError(banner);
+      setFieldErrors(fields);
+    }
+  }
+
+  async function handleDelete() {
+    if (!confirmingDelete) {
+      setConfirmingDelete(true);
+      return;
+    }
+    if (!programId) return;
+    setActionError(null);
+    try {
+      await apiMutate(`/admin/programs/${programId}/`, "DELETE");
+      invalidateCache("admin:programs");
+      navigate("/admin/programs");
+    } catch (err) {
+      setActionError(apiErrorMessage(err));
+      setConfirmingDelete(false);
+    }
+  }
+
+  if (notFound) {
     return (
-      <DashboardShell
-        railItems={RAIL_ITEMS}
-        activeRailId="programs"
-        homeHref="/admin/dashboard"
-        avatarInitials={avatarInitials}
-        pageTitle="Program"
-        sessionLabel={mockCurrentSession}
-        subtitle={admin.institutional_email}
-        profileHref="/admin/profile"
-      >
+      <>
         <Breadcrumbs
           items={[
             { label: "Dashboard", href: "/admin/dashboard" },
@@ -67,54 +136,38 @@ export function ProgramDetailPage() {
           ]}
         />
         <p className={styles.notFound}>Program {programId} was not found.</p>
-      </DashboardShell>
+      </>
     );
   }
 
-  function startEditing() {
-    setFormValue(programFormValueFromRecord(record!));
-    setEditing(true);
-    setMessage(null);
+  if (loadError) {
+    return <div className={formStyles.errorBanner}>{loadError}</div>;
   }
 
-  function handleSave(e: React.FormEvent) {
-    e.preventDefault();
-    if (!formValue || !programId) return;
-    updateProgram(programId, formValue);
-    setEditing(false);
-    setMessage("Program updated.");
-  }
-
-  function handleDelete() {
-    if (!confirmingDelete) {
-      setConfirmingDelete(true);
-      return;
-    }
-    if (!programId) return;
-    deleteProgram(programId);
-    navigate("/admin/programs");
+  if (!record) {
+    return <p className={styles.empty}>Loading program…</p>;
   }
 
   return (
-    <DashboardShell
-      railItems={RAIL_ITEMS}
-      activeRailId="programs"
-      homeHref="/admin/dashboard"
-      avatarInitials={avatarInitials}
-      pageTitle={editing ? "Edit program" : "Program"}
-      sessionLabel={mockCurrentSession}
-      subtitle={admin.institutional_email}
-      profileHref="/admin/profile"
-    >
+    <>
       <Breadcrumbs
-        items={[
-          { label: "Dashboard", href: "/admin/dashboard" },
-          { label: "Programs", href: "/admin/programs" },
-          { label: record.program_name },
-        ]}
+        items={
+          editing
+            ? [
+                { label: "Dashboard", href: "/admin/dashboard" },
+                { label: "Programs", href: "/admin/programs" },
+                { label: record.program_name, href: viewPath },
+                { label: "Edit" },
+              ]
+            : [
+                { label: "Dashboard", href: "/admin/dashboard" },
+                { label: "Programs", href: "/admin/programs" },
+                { label: record.program_name },
+              ]
+        }
       />
 
-      {message && <div className={formStyles.banner}>{message}</div>}
+      {actionError && <div className={formStyles.errorBanner}>{actionError}</div>}
 
       {editing && formValue ? (
         <form className={styles.editCard} onSubmit={handleSave}>
@@ -124,7 +177,7 @@ export function ProgramDetailPage() {
               <label htmlFor="program_id">Program ID</label>
               <input id="program_id" value={formValue.program_id} readOnly />
             </div>
-            <div className={formStyles.field}>
+            <div className={formStyles.field} data-invalid={fieldErrors.program_name ? "true" : undefined}>
               <label htmlFor="program_name">Program name</label>
               <input
                 id="program_name"
@@ -132,24 +185,26 @@ export function ProgramDetailPage() {
                 onChange={(e) => setFormValue({ ...formValue, program_name: e.target.value })}
                 required
               />
+              {fieldErrors.program_name && <span className={formStyles.fieldError}>{fieldErrors.program_name}</span>}
             </div>
-            <div className={formStyles.field}>
+            <div className={formStyles.field} data-invalid={fieldErrors.department ? "true" : undefined}>
               <label htmlFor="department">Department</label>
               <select
                 id="department"
                 value={formValue.department}
                 onChange={(e) => setFormValue({ ...formValue, department: e.target.value })}
               >
-                {DEPARTMENTS.map((d) => (
+                {departments.map((d) => (
                   <option key={d.department_id} value={d.department_id}>
                     {d.department_name}
                   </option>
                 ))}
               </select>
+              {fieldErrors.department && <span className={formStyles.fieldError}>{fieldErrors.department}</span>}
             </div>
           </div>
           <div className={formStyles.row}>
-            <div className={formStyles.field}>
+            <div className={formStyles.field} data-invalid={fieldErrors.total_semesters ? "true" : undefined}>
               <label htmlFor="total_semesters">Total semesters</label>
               <input
                 id="total_semesters"
@@ -157,8 +212,9 @@ export function ProgramDetailPage() {
                 value={formValue.total_semesters}
                 onChange={(e) => setFormValue({ ...formValue, total_semesters: e.target.value })}
               />
+              {fieldErrors.total_semesters && <span className={formStyles.fieldError}>{fieldErrors.total_semesters}</span>}
             </div>
-            <div className={formStyles.field}>
+            <div className={formStyles.field} data-invalid={fieldErrors.fee_per_semester ? "true" : undefined}>
               <label htmlFor="fee_per_semester">Fee per semester</label>
               <input
                 id="fee_per_semester"
@@ -166,6 +222,7 @@ export function ProgramDetailPage() {
                 value={formValue.fee_per_semester}
                 onChange={(e) => setFormValue({ ...formValue, fee_per_semester: e.target.value })}
               />
+              {fieldErrors.fee_per_semester && <span className={formStyles.fieldError}>{fieldErrors.fee_per_semester}</span>}
             </div>
           </div>
 
@@ -173,7 +230,7 @@ export function ProgramDetailPage() {
             <button type="submit" className={formStyles.primaryButton}>
               Save changes
             </button>
-            <button type="button" className={formStyles.secondaryButton} onClick={() => setEditing(false)}>
+            <button type="button" className={formStyles.secondaryButton} onClick={() => navigate(viewPath)}>
               Cancel
             </button>
           </div>
@@ -187,9 +244,9 @@ export function ProgramDetailPage() {
             </p>
           </div>
           <div className={formStyles.actions}>
-            <button type="button" className={formStyles.secondaryButton} onClick={startEditing}>
+            <Link to={`${viewPath}/edit`} className={formStyles.secondaryButton}>
               Edit
-            </button>
+            </Link>
             <button type="button" className={formStyles.dangerButton} onClick={handleDelete}>
               {confirmingDelete ? "Confirm delete" : "Delete"}
             </button>
@@ -210,6 +267,6 @@ export function ProgramDetailPage() {
           </dl>
         </Panel>
       )}
-    </DashboardShell>
+    </>
   );
 }

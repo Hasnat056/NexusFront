@@ -1,79 +1,78 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { DashboardShell } from "../components/layout/DashboardShell";
-import type { RailNavItem } from "../components/layout/Rail";
-import {
-  IconScroll,
-  IconHourglass,
-  IconInbox,
-  IconBars,
-  IconBook,
-  IconBuilding,
-  IconCalendar,
-  IconClipboard,
-  IconGraduationCap,
-  IconLayers,
-  IconGrid,
-  IconPeople,
-  IconPerson,
-  IconUserCheck,
-} from "../components/icons/Icons";
+import { useAdminPageConfig } from "../components/layout/AdminShellContext";
 import { Breadcrumbs } from "../components/ui/Breadcrumbs";
-import { createAllocation, eligibleSemestersForAllocation, emptyAllocationFormValue } from "../data/allocationDirectory";
-import { mockFacultyDirectory } from "../data/facultyDirectory";
-import { mockAdminDashboardResponse } from "../data/adminDashboard";
-import { mockCurrentSession } from "../data/session";
+import { apiGetAllPages, apiMutate, cached, invalidateCache } from "../lib/auth";
+import { ApiError, apiFormErrors } from "../lib/api";
+import { eligibleSemestersForAllocation } from "../lib/allocationEligibility";
+import type { AdminClass, AdminCourseAllocationSummary, AdminFacultyListItem, AdminSemester, AdminSession } from "../types/api";
 import formStyles from "../components/ui/Form.module.css";
 import styles from "./PersonCreatePage.module.css";
 
-const RAIL_ITEMS: RailNavItem[] = [
-  { id: "dashboard", label: "Dashboard", icon: IconGrid, href: "/admin/dashboard" },
-  { id: "faculty", label: "Faculty", icon: IconPerson, href: "/admin/faculty" },
-  { id: "students", label: "Students", icon: IconPeople, href: "/admin/students" },
-  { id: "departments", label: "Departments", icon: IconBuilding, href: "/admin/departments" },
-  { id: "programs", label: "Programs", icon: IconLayers, href: "/admin/programs" },
-  { id: "courses", label: "Courses", icon: IconBook, href: "/admin/courses" },
-  { id: "classes", label: "Classes", icon: IconGraduationCap, href: "/admin/classes" },
-  { id: "allocations", label: "Allocations", icon: IconClipboard, href: "/admin/allocations" },
-  { id: "enrollments", label: "Enrollments", icon: IconUserCheck, href: "/admin/enrollments" },
-  { id: "sessions", label: "Sessions", icon: IconCalendar, href: "/admin/sessions" },
-  { id: "semesters", label: "Semesters", icon: IconHourglass, href: "/admin/semesters" },
-  { id: "transcripts", label: "Transcripts", icon: IconScroll, href: "/admin/transcripts" },
-  { id: "requests", label: "Requests", icon: IconInbox, href: "/admin/requests" },
-  { id: "reports", label: "Reports", icon: IconBars },
-];
-
 export function AllocationCreatePage() {
   const navigate = useNavigate();
-  const admin = mockAdminDashboardResponse.admin;
-  const avatarInitials = `${admin.first_name[0]}${admin.last_name[0]}`.toUpperCase();
-  const [value, setValue] = useState(emptyAllocationFormValue());
+  useAdminPageConfig("New allocation");
+  const [faculty, setFaculty] = useState<AdminFacultyListItem[]>([]);
+  const [semesters, setSemesters] = useState<AdminSemester[]>([]);
+  const [sessions, setSessions] = useState<AdminSession[]>([]);
+  const [classes, setClasses] = useState<AdminClass[]>([]);
+  const [loaded, setLoaded] = useState(false);
+  const [value, setValue] = useState({ faculty: "", course: "", semester: "" });
   const [error, setError] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  const [submitting, setSubmitting] = useState(false);
 
-  const eligibleSemesters = eligibleSemestersForAllocation();
+  useEffect(() => {
+    let cancelled = false;
+    Promise.all([
+      cached("admin:all-faculty", () => apiGetAllPages<AdminFacultyListItem>("/admin/faculty/")),
+      apiGetAllPages<AdminSemester>("/admin/semesters/"),
+      cached("admin:sessions", () => apiGetAllPages<AdminSession>("/admin/sessions/")),
+      cached("admin:classes", () => apiGetAllPages<AdminClass>("/admin/classes/")),
+    ])
+      .then(([facultyRes, semestersRes, sessionsRes, classesRes]) => {
+        if (cancelled) return;
+        setFaculty(facultyRes);
+        setSemesters(semestersRes);
+        setSessions(sessionsRes);
+        setClasses(classesRes);
+        setLoaded(true);
+      })
+      .catch((err: unknown) => {
+        if (err instanceof ApiError && err.status === 401) navigate("/login", { replace: true });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [navigate]);
+
+  const eligibleSemesters = useMemo(() => eligibleSemestersForAllocation(semesters, sessions, classes), [semesters, sessions, classes]);
   const selectedSemester = eligibleSemesters.find((s) => String(s.semesterId) === value.semester);
 
-  function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    const result = createAllocation(value);
-    if (typeof result === "string") {
-      setError(result);
-      return;
+    setError(null);
+    setFieldErrors({});
+    setSubmitting(true);
+    try {
+      const record = await apiMutate<AdminCourseAllocationSummary>("/admin/allocations/", "POST", {
+        faculty: value.faculty,
+        course: value.course,
+        semester: Number(value.semester),
+      });
+      invalidateCache("admin:allocations");
+      navigate(`/admin/allocations/${record.allocation_id}`);
+    } catch (err) {
+      const { banner, fields } = apiFormErrors(err);
+      setError(banner);
+      setFieldErrors(fields);
+    } finally {
+      setSubmitting(false);
     }
-    navigate(`/admin/allocations/${result.allocation_id}`);
   }
 
   return (
-    <DashboardShell
-      railItems={RAIL_ITEMS}
-      activeRailId="allocations"
-      homeHref="/admin/dashboard"
-      avatarInitials={avatarInitials}
-      pageTitle="New allocation"
-      sessionLabel={mockCurrentSession}
-      subtitle={admin.institutional_email}
-      profileHref="/admin/profile"
-    >
+    <>
       <Breadcrumbs
         items={[
           { label: "Dashboard", href: "/admin/dashboard" },
@@ -84,19 +83,12 @@ export function AllocationCreatePage() {
 
       <form className={styles.card} onSubmit={handleSubmit}>
         <h1 className={styles.headline}>New allocation</h1>
-        <p className={styles.subhead}>
-          Mirrors POST /api/admin/allocations/ (AdminModule/views.py::CourseAllocationListCreateAPIView)
-          — session and status aren't set here: CourseAllocationSerializer.create() copies session
-          from the semester automatically and always starts status at "Inactive". The semester list
-          below is restricted to semesters that are still Inactive, assigned to a session that's
-          Initiated, AND already have their own activation deadline scheduled
-          (CourseAllocationSerializer.get_fields()), and course is restricted to that semester's own
-          scheme of studies.
-        </p>
 
         {error && <div className={formStyles.errorBanner}>{error}</div>}
 
-        {eligibleSemesters.length === 0 ? (
+        {!loaded ? (
+          <p className={formStyles.hint}>Loading…</p>
+        ) : eligibleSemesters.length === 0 ? (
           <p className={formStyles.hint}>
             No semester is currently eligible. Three things have to line up: a session with an
             activation deadline set (Sessions), that session assigned to a blank semester on a class
@@ -105,18 +97,19 @@ export function AllocationCreatePage() {
         ) : (
           <>
             <div className={formStyles.row}>
-              <div className={formStyles.field}>
+              <div className={formStyles.field} data-invalid={fieldErrors.faculty ? "true" : undefined}>
                 <label htmlFor="faculty">Faculty</label>
                 <select id="faculty" value={value.faculty} onChange={(e) => setValue({ ...value, faculty: e.target.value })} required>
                   <option value="">Select faculty…</option>
-                  {mockFacultyDirectory.map((f) => (
+                  {faculty.map((f) => (
                     <option key={f.person.person_id} value={f.person.person_id}>
                       {f.person.person_id} — {f.person.first_name} {f.person.last_name}
                     </option>
                   ))}
                 </select>
+                {fieldErrors.faculty && <span className={formStyles.fieldError}>{fieldErrors.faculty}</span>}
               </div>
-              <div className={formStyles.field}>
+              <div className={formStyles.field} data-invalid={fieldErrors.semester ? "true" : undefined}>
                 <label htmlFor="semester">Semester</label>
                 <select
                   id="semester"
@@ -127,12 +120,13 @@ export function AllocationCreatePage() {
                   <option value="">Select semester…</option>
                   {eligibleSemesters.map((s) => (
                     <option key={s.semesterId} value={s.semesterId}>
-                      {s.classLabel} · Semester {s.semesterNo}
+                      {s.label}
                     </option>
                   ))}
                 </select>
+                {fieldErrors.semester && <span className={formStyles.fieldError}>{fieldErrors.semester}</span>}
               </div>
-              <div className={formStyles.field}>
+              <div className={formStyles.field} data-invalid={fieldErrors.course ? "true" : undefined}>
                 <label htmlFor="course">Course</label>
                 <select
                   id="course"
@@ -148,12 +142,13 @@ export function AllocationCreatePage() {
                     </option>
                   ))}
                 </select>
+                {fieldErrors.course && <span className={formStyles.fieldError}>{fieldErrors.course}</span>}
               </div>
             </div>
 
             <div className={formStyles.actions}>
-              <button type="submit" className={formStyles.primaryButton}>
-                Create allocation
+              <button type="submit" className={formStyles.primaryButton} disabled={submitting}>
+                {submitting ? "Creating…" : "Create allocation"}
               </button>
               <Link to="/admin/allocations" className={formStyles.secondaryButton}>
                 Cancel
@@ -162,6 +157,6 @@ export function AllocationCreatePage() {
           </>
         )}
       </form>
-    </DashboardShell>
+    </>
   );
 }

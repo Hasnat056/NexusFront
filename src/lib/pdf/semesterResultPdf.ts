@@ -50,17 +50,21 @@ export function downloadSemesterResultPdf(data: SemesterResultPdfData): void {
   ]);
 
   // Assessment sub-rows reuse the course row's 4 columns with different meanings: col 1
-  // (CREDITS for a course) becomes weightage, col 3 (GPA) becomes that assessment's actual
-  // contribution to obtained_marks — (obtained/totalMarks)*weightage, the same formula
-  // ResultCalculationMixin.calculate_result() sums server-side.
+  // (CREDITS for a course) is left blank, col 3 (GPA) is left blank — the API doesn't expose
+  // per-assessment weightage to a student, only each assessment's own obtained/total marks.
   const body: string[][] = [];
   const assessmentRowIndices = new Set<number>();
   const dividerRowIndices = new Set<number>();
   data.courses.forEach((c, i) => {
-    body.push([`${c.courseName}\n${c.courseCode}`, String(c.creditHours), `${c.obtainedMarks.toFixed(2)} / 100`, c.courseGpa.toFixed(2)]);
-    for (const a of c.breakdown) {
+    body.push([
+      `${c.courseName}\n${c.courseCode}`,
+      String(c.creditHours),
+      c.obtainedMarks != null ? `${c.obtainedMarks.toFixed(2)} / 100` : "—",
+      c.courseGpa != null ? c.courseGpa.toFixed(2) : "—",
+    ]);
+    for (const a of c.assessments) {
       assessmentRowIndices.add(body.length);
-      body.push([`${a.name} (${a.type})`, `${a.weightage}%`, `${a.obtained ?? "—"} / ${a.totalMarks}`, `${a.contribution.toFixed(2)} pts`]);
+      body.push([`${a.name} (${a.type})`, "", `${a.obtained ?? "—"} / ${a.totalMarks}`, ""]);
     }
     if (i < data.courses.length - 1) {
       dividerRowIndices.add(body.length);
@@ -80,7 +84,7 @@ export function downloadSemesterResultPdf(data: SemesterResultPdfData): void {
       2: { halign: "right", cellWidth: 26 },
       3: { halign: "right", cellWidth: 20 },
     },
-    head: [["COURSE", "WEIGHT / CREDITS", "MARKS", "CONTRIBUTION / GPA"]],
+    head: [["COURSE", "CREDITS", "MARKS", "GRADE GPA"]],
     body,
     didParseCell(hook) {
       if (dividerRowIndices.has(hook.row.index)) {

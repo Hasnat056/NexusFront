@@ -36,6 +36,7 @@
   height: 56px;
   flex: 0 0 auto;
   border-radius: 50%;
+  overflow: hidden;
   background: var(--color-accent-soft);
   color: var(--color-on-accent);
   display: flex;
@@ -44,6 +45,12 @@
   font-family: var(--font-display);
   font-weight: 700;
   font-size: 1.2rem;
+}
+
+.avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 .profileMain {

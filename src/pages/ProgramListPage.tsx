@@ -1,38 +1,26 @@
-import { useMemo, useState } from "react";
-import { Link } from "react-router-dom";
-import { DashboardShell } from "../components/layout/DashboardShell";
-import type { RailNavItem } from "../components/layout/Rail";
-import { IconScroll, IconHourglass, IconInbox, IconBars, IconBook, IconBuilding, IconCalendar, IconClipboard, IconGraduationCap, IconLayers, IconGrid, IconPeople, IconPerson, IconUserCheck } from "../components/icons/Icons";
-import { ProgramFeeSwarm } from "../components/charts/ProgramFeeSwarm";
+import { useEffect, useMemo, useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
+import { useAdminPageConfig } from "../components/layout/AdminShellContext";
+import { ProgramStatusStackedBar, type ProgramStatusPoint } from "../components/charts/ProgramStatusStackedBar";
+import { STUDENT_STATUS_ORDER } from "../lib/studentStatusColors";
 import { Panel } from "../components/ui/Panel";
 import { Table, type Column } from "../components/ui/Table";
 import { FilterBar } from "../components/ui/FilterBar";
-import { mockPrograms, selectProgramListRows } from "../data/programDirectory";
-import { selectProgramPoints } from "../data/programInsights";
-import { DEPARTMENTS } from "../data/academicStructure";
-import { mockAdminDashboardResponse } from "../data/adminDashboard";
-import { mockCurrentSession } from "../data/session";
-import type { ProgramListRow } from "../types/dashboard";
+import { apiGetAllPages, cached } from "../lib/auth";
+import { ApiError, apiErrorMessage } from "../lib/api";
+import type { AdminDepartment, AdminProgram, AdminStudentListItem } from "../types/api";
 import styles from "./FacultyListPage.module.css";
 
-const RAIL_ITEMS: RailNavItem[] = [
-  { id: "dashboard", label: "Dashboard", icon: IconGrid, href: "/admin/dashboard" },
-  { id: "faculty", label: "Faculty", icon: IconPerson, href: "/admin/faculty" },
-  { id: "students", label: "Students", icon: IconPeople, href: "/admin/students" },
-  { id: "departments", label: "Departments", icon: IconBuilding, href: "/admin/departments" },
-  { id: "programs", label: "Programs", icon: IconLayers, href: "/admin/programs" },
-  { id: "courses", label: "Courses", icon: IconBook, href: "/admin/courses" },
-  { id: "classes", label: "Classes", icon: IconGraduationCap, href: "/admin/classes" },
-  { id: "allocations", label: "Allocations", icon: IconClipboard, href: "/admin/allocations" },
-  { id: "enrollments", label: "Enrollments", icon: IconUserCheck, href: "/admin/enrollments" },
-  { id: "sessions", label: "Sessions", icon: IconCalendar, href: "/admin/sessions" },
-  { id: "semesters", label: "Semesters", icon: IconHourglass, href: "/admin/semesters" },
-  { id: "transcripts", label: "Transcripts", icon: IconScroll, href: "/admin/transcripts" },
-  { id: "requests", label: "Requests", icon: IconInbox, href: "/admin/requests" },
-  { id: "reports", label: "Reports", icon: IconBars },
-];
+interface ProgramRow {
+  programId: string;
+  programName: string;
+  department: string;
+  totalSemesters: number;
+  feePerSemester: number | null;
+  detailHref: string;
+}
 
-const columns: Column<ProgramListRow>[] = [
+const columns: Column<ProgramRow>[] = [
   { key: "programId", header: "Program ID", render: (row) => row.programId },
   {
     key: "name",
@@ -53,40 +41,92 @@ const columns: Column<ProgramListRow>[] = [
 ];
 
 export function ProgramListPage() {
-  const admin = mockAdminDashboardResponse.admin;
-  const avatarInitials = `${admin.first_name[0]}${admin.last_name[0]}`.toUpperCase();
+  useAdminPageConfig("Programs");
+  const navigate = useNavigate();
+  const [programs, setPrograms] = useState<AdminProgram[] | null>(null);
+  const [departments, setDepartments] = useState<AdminDepartment[]>([]);
+  const [students, setStudents] = useState<AdminStudentListItem[]>([]);
+  const [error, setError] = useState<string | null>(null);
+
   const [search, setSearch] = useState("");
   const [department, setDepartment] = useState("");
   const [totalSemesters, setTotalSemesters] = useState("");
 
-  const semesterOptions = useMemo(() => {
-    const values = Array.from(new Set(mockPrograms.map((p) => p.total_semesters))).sort((a, b) => a - b);
-    return values.map((v) => ({ value: String(v), label: `${v} semesters` }));
-  }, []);
+  useEffect(() => {
+    let cancelled = false;
+    Promise.all([
+      cached("admin:programs", () => apiGetAllPages<AdminProgram>("/admin/programs/")),
+      cached("admin:departments", () => apiGetAllPages<AdminDepartment>("/admin/departments/")),
+      cached("admin:all-students", () => apiGetAllPages<AdminStudentListItem>("/admin/students/")),
+    ])
+      .then(([programsRes, departmentsRes, studentsRes]) => {
+        if (cancelled) return;
+        setPrograms(programsRes);
+        setDepartments(departmentsRes);
+        setStudents(studentsRes);
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        if (err instanceof ApiError && err.status === 401) {
+          navigate("/login", { replace: true });
+          return;
+        }
+        setError(apiErrorMessage(err));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [navigate]);
 
-  const rows = useMemo(() => {
-    return selectProgramListRows(mockPrograms).filter((row) => {
-      if (department && row.department !== department) return false;
-      if (totalSemesters && String(row.totalSemesters) !== totalSemesters) return false;
-      if (search) {
-        const needle = search.toLowerCase();
-        if (!row.programId.toLowerCase().includes(needle) && !row.programName.toLowerCase().includes(needle)) return false;
-      }
-      return true;
-    });
-  }, [search, department, totalSemesters]);
+  const semesterOptions = useMemo(() => {
+    const values = Array.from(new Set((programs ?? []).map((p) => p.total_semesters))).sort((a, b) => a - b);
+    return values.map((v) => ({ value: String(v), label: `${v} semesters` }));
+  }, [programs]);
+
+  const rows: ProgramRow[] = useMemo(() => {
+    return (programs ?? [])
+      .map((p) => ({
+        programId: p.program_id,
+        programName: p.program_name,
+        department: p.department,
+        totalSemesters: p.total_semesters,
+        feePerSemester: p.fee_per_semester,
+        detailHref: `/admin/programs/${p.program_id}`,
+      }))
+      .filter((row) => {
+        if (department && row.department !== department) return false;
+        if (totalSemesters && String(row.totalSemesters) !== totalSemesters) return false;
+        if (search) {
+          const needle = search.toLowerCase();
+          if (!row.programId.toLowerCase().includes(needle) && !row.programName.toLowerCase().includes(needle)) return false;
+        }
+        return true;
+      });
+  }, [programs, department, totalSemesters, search]);
+
+  const statusPoints: ProgramStatusPoint[] = useMemo(
+    () =>
+      (programs ?? []).map((p) => {
+        const counts: ProgramStatusPoint["counts"] = {};
+        for (const status of STUDENT_STATUS_ORDER) {
+          counts[status] = students.filter((s) => s.program === p.program_id && s.status === status).length;
+        }
+        return {
+          programId: p.program_id,
+          programName: p.program_name,
+          detailHref: `/admin/programs/${p.program_id}`,
+          counts,
+        };
+      }),
+    [programs, students],
+  );
+
+  if (error) {
+    return <div className={styles.empty}>{error}</div>;
+  }
 
   return (
-    <DashboardShell
-      railItems={RAIL_ITEMS}
-      activeRailId="programs"
-      homeHref="/admin/dashboard"
-      avatarInitials={avatarInitials}
-      pageTitle="Programs"
-      sessionLabel={mockCurrentSession}
-      subtitle={admin.institutional_email}
-      profileHref="/admin/profile"
-    >
+    <>
       <FilterBar
         searchValue={search}
         onSearchChange={setSearch}
@@ -97,7 +137,7 @@ export function ProgramListPage() {
             value: department,
             onChange: setDepartment,
             placeholder: "All departments",
-            options: DEPARTMENTS.map((d) => ({ value: d.department_id, label: d.department_name })),
+            options: departments.map((d) => ({ value: d.department_id, label: d.department_name })),
           },
           {
             id: "total_semesters",
@@ -111,17 +151,15 @@ export function ProgramListPage() {
         addLabel="+ New program"
       />
 
-      <Panel title="Programs by fee" hint="Positioned by fee per semester, colored by department">
-        <ProgramFeeSwarm points={selectProgramPoints()} formatFee={(v) => `Rs ${(v / 1000).toFixed(0)}k`} />
+      <Panel title="Enrollment by status" hint="Student headcount per program, broken down by status">
+        <ProgramStatusStackedBar points={statusPoints} />
       </Panel>
 
-      <Panel title="Programs" hint={`${rows.length} of ${mockPrograms.length}`}>
-        {rows.length > 0 ? (
-          <Table columns={columns} rows={rows} rowKey={(row) => row.programId} />
-        ) : (
-          <p className={styles.empty}>No programs match these filters.</p>
-        )}
+      <Panel title="Programs" hint={programs ? `${rows.length} of ${programs.length}` : undefined}>
+        {!programs && <p className={styles.empty}>Loading programs…</p>}
+        {programs && rows.length > 0 && <Table columns={columns} rows={rows} rowKey={(row) => row.programId} />}
+        {programs && rows.length === 0 && <p className={styles.empty}>No programs match these filters.</p>}
       </Panel>
-    </DashboardShell>
+    </>
   );
 }

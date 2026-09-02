@@ -1,5 +1,7 @@
 import type { ComponentType, SVGProps } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
+import { logout } from "../../lib/auth";
+import { IconLogout } from "../icons/Icons";
 import styles from "./Rail.module.css";
 
 export interface RailNavItem {
@@ -12,11 +14,17 @@ export interface RailNavItem {
 interface RailProps {
   items: RailNavItem[];
   activeId: string;
-  avatarInitials: string;
   homeHref: string;
 }
 
-export function Rail({ items, activeId, avatarInitials, homeHref }: RailProps) {
+export function Rail({ items, activeId, homeHref }: RailProps) {
+  const navigate = useNavigate();
+
+  function handleLogout() {
+    logout();
+    navigate("/login", { replace: true });
+  }
+
   return (
     <aside className={styles.rail}>
       <Link to={homeHref} className={styles.mark} aria-label="Nexus home">
@@ -50,7 +58,9 @@ export function Rail({ items, activeId, avatarInitials, homeHref }: RailProps) {
         );
       })}
       <div className={styles.spacer} />
-      <div className={styles.avatar}>{avatarInitials}</div>
+      <button type="button" className={styles.logout} onClick={handleLogout} aria-label="Log out" title="Log out">
+        <IconLogout />
+      </button>
     </aside>
   );
 }

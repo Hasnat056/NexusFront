@@ -1,31 +1,25 @@
-import { useMemo, useState, type FormEvent } from "react";
-import { useParams } from "react-router-dom";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useNavigate, useParams } from "react-router-dom";
 import { DashboardShell } from "../components/layout/DashboardShell";
-import type { RailNavItem } from "../components/layout/Rail";
-import { IconBook, IconGrid, IconPerson } from "../components/icons/Icons";
+import { FACULTY_RAIL_ITEMS } from "../components/layout/facultyRailItems";
 import { Avatar } from "../components/ui/Avatar";
 import { Breadcrumbs } from "../components/ui/Breadcrumbs";
 import { Panel } from "../components/ui/Panel";
 import { Table } from "../components/ui/Table";
 import { Tag } from "../components/ui/Tag";
-import type { Lecture } from "../types/api";
-import {
-  createLecture,
-  deleteLecture,
-  getFacultyAllocationDetail,
-  setAttendance,
-  updateLecture,
-  type LectureFormValue,
-} from "../data/facultyAllocationDetail";
-import { mockFacultyDashboardResponse } from "../data/facultyDashboard";
+import { useToast } from "../components/ui/ToastContext";
+import type { Attendance, FacultyAllocationDetail, FacultyDashboardResponse, Lecture } from "../types/api";
+import { apiGet, apiMutate } from "../lib/auth";
+import { ApiError, apiErrorMessage, apiFormErrors } from "../lib/api";
 import formStyles from "../components/ui/Form.module.css";
 import styles from "./PersonDetailPage.module.css";
 
-const RAIL_ITEMS: RailNavItem[] = [
-  { id: "dashboard", label: "Dashboard", icon: IconGrid, href: "/faculty/dashboard" },
-  { id: "allocations", label: "Allocations", icon: IconBook, href: "/faculty/allocations" },
-  { id: "profile", label: "Profile", icon: IconPerson, href: "/faculty/profile" },
-];
+interface LectureFormValue {
+  starting_time: string;
+  venue: string;
+  duration: number;
+  topic: string;
+}
 
 const EMPTY_LECTURE_FORM: LectureFormValue = { starting_time: "", venue: "", duration: 60, topic: "" };
 
@@ -34,49 +28,121 @@ function formatDateTime(iso: string): string {
 }
 
 export function FacultyAllocationLecturesPage() {
+  const navigate = useNavigate();
   const { id } = useParams<{ id: string }>();
   const allocationId = id ? Number(id) : NaN;
-  const [, setTick] = useState(0);
+  const { showToast } = useToast();
+
+  const [dashboard, setDashboard] = useState<FacultyDashboardResponse | null>(null);
+  const [detail, setDetail] = useState<FacultyAllocationDetail | null>(null);
+  const [notFound, setNotFound] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [refreshKey, setRefreshKey] = useState(0);
+
   const [error, setError] = useState<string | null>(null);
-  const [message, setMessage] = useState<string | null>(null);
 
   const [addingLecture, setAddingLecture] = useState(false);
   const [lectureForm, setLectureForm] = useState<LectureFormValue>(EMPTY_LECTURE_FORM);
   const [editingLectureId, setEditingLectureId] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  const [saving, setSaving] = useState(false);
 
   const [expandedLectureId, setExpandedLectureId] = useState<string | null>(null);
+  const [expandedLecture, setExpandedLecture] = useState<Lecture | null>(null);
   const [rosterFilter, setRosterFilter] = useState("");
+  const [attendanceDraft, setAttendanceDraft] = useState<Attendance[] | null>(null);
+  const [savingAttendance, setSavingAttendance] = useState(false);
 
-  const dashboard = mockFacultyDashboardResponse;
-  const avatarInitials = `${dashboard.faculty.first_name[0]}${dashboard.faculty.last_name[0]}`.toUpperCase();
+  // LectureSerializer.__init__ (FacultyModule/serializers.py) only keeps attendance_set when
+  // `self.instance` is a single Lecture — in a many=True context (this page's list, and the
+  // lecture_set nested under GET .../allocations/<id>/) self.instance is the whole queryset
+  // instead, so the field is always popped there. Present sums stay blank; the per-lecture detail
+  // is fetched fresh whenever a row is expanded for attendance.
+  const [presentCounts, setPresentCounts] = useState<Record<string, { present: number; total: number }>>({});
 
-  const detail = getFacultyAllocationDetail(allocationId);
+  useEffect(() => {
+    let cancelled = false;
+    Promise.all([
+      apiGet<FacultyDashboardResponse>("/faculty/dashboard/"),
+      apiGet<FacultyAllocationDetail>(`/faculty/allocations/${allocationId}/`),
+    ])
+      .then(([dashboardRes, detailRes]) => {
+        if (cancelled) return;
+        setDashboard(dashboardRes);
+        setDetail(detailRes);
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        if (err instanceof ApiError && err.status === 401) {
+          navigate("/login", { replace: true });
+          return;
+        }
+        if (err instanceof ApiError && err.status === 404) {
+          setNotFound(true);
+          return;
+        }
+        setLoadError(apiErrorMessage(err));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [navigate, allocationId, refreshKey]);
 
-  function refresh() {
-    setTick((t) => t + 1);
-  }
-
-  const expandedLecture = detail?.lecture_set.find((l) => l.lecture_id === expandedLectureId) ?? null;
+  useEffect(() => {
+    if (!detail) return;
+    let cancelled = false;
+    Promise.all(
+      detail.lecture_set.map((l) => apiGet<Lecture>(`/faculty/allocations/${allocationId}/lectures/${l.lecture_id}/`)),
+    )
+      .then((results) => {
+        if (cancelled) return;
+        const counts: Record<string, { present: number; total: number }> = {};
+        for (const r of results) {
+          counts[r.lecture_id] = {
+            present: r.attendance_set.filter((a) => a.is_present).length,
+            total: r.attendance_set.length,
+          };
+        }
+        setPresentCounts(counts);
+      })
+      .catch(() => {
+        // Best-effort — the "Present" column just stays blank if this fails.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [detail, allocationId]);
 
   const filteredRoster = useMemo(() => {
-    if (!expandedLecture) return [];
+    const roster = attendanceDraft ?? expandedLecture?.attendance_set ?? [];
     const q = rosterFilter.trim().toLowerCase();
-    if (!q) return expandedLecture.attendance_set;
-    return expandedLecture.attendance_set.filter((a) => {
+    if (!q) return roster;
+    return roster.filter((a) => {
       const name = `${a.student_info.first_name} ${a.student_info.last_name} ${a.student_info.student_id}`.toLowerCase();
       return name.includes(q);
     });
-  }, [expandedLecture, rosterFilter]);
+  }, [attendanceDraft, expandedLecture, rosterFilter]);
 
-  if (!detail) {
+  const avatarInitials = dashboard ? `${dashboard.faculty.first_name[0]}${dashboard.faculty.last_name[0]}`.toUpperCase() : "—";
+
+  if (loadError) {
+    return (
+      <DashboardShell railItems={FACULTY_RAIL_ITEMS} activeRailId="allocations" homeHref="/faculty/dashboard" profileHref="/faculty/profile" avatarInitials={avatarInitials} pageTitle="Lectures" subtitle="">
+        <div className={formStyles.errorBanner}>{loadError}</div>
+      </DashboardShell>
+    );
+  }
+
+  if (notFound) {
     return (
       <DashboardShell
-        railItems={RAIL_ITEMS}
+        railItems={FACULTY_RAIL_ITEMS}
         activeRailId="allocations"
         homeHref="/faculty/dashboard"
+        profileHref="/faculty/profile"
         avatarInitials={avatarInitials}
         pageTitle="Lectures"
-        subtitle={dashboard.faculty.institutional_email}
+        subtitle={dashboard?.faculty.institutional_email ?? ""}
       >
         <Breadcrumbs
           items={[
@@ -90,6 +156,14 @@ export function FacultyAllocationLecturesPage() {
     );
   }
 
+  if (!dashboard || !detail) {
+    return (
+      <DashboardShell railItems={FACULTY_RAIL_ITEMS} activeRailId="allocations" homeHref="/faculty/dashboard" profileHref="/faculty/profile" avatarInitials={avatarInitials} pageTitle="Lectures" subtitle="">
+        <p className={styles.notFound}>Loading lectures…</p>
+      </DashboardShell>
+    );
+  }
+
   const locked = detail.status === "Completed";
 
   function startAddLecture() {
@@ -97,6 +171,7 @@ export function FacultyAllocationLecturesPage() {
     setAddingLecture(true);
     setEditingLectureId(null);
     setError(null);
+    setFieldErrors({});
   }
 
   function startEditLecture(l: Lecture) {
@@ -104,6 +179,7 @@ export function FacultyAllocationLecturesPage() {
     setEditingLectureId(l.lecture_id);
     setAddingLecture(false);
     setError(null);
+    setFieldErrors({});
   }
 
   function cancelLectureForm() {
@@ -111,63 +187,132 @@ export function FacultyAllocationLecturesPage() {
     setEditingLectureId(null);
   }
 
-  function handleSaveLecture(e: FormEvent) {
+  async function handleSaveLecture(e: FormEvent) {
     e.preventDefault();
-    const result =
-      editingLectureId !== null
-        ? updateLecture(allocationId, editingLectureId, lectureForm)
-        : createLecture(allocationId, lectureForm);
-    if (typeof result === "string") {
-      setError(result);
-      return;
-    }
-    setAddingLecture(false);
-    setEditingLectureId(null);
+    setSaving(true);
     setError(null);
-    setMessage("Lecture saved.");
-    refresh();
+    setFieldErrors({});
+    const body = {
+      starting_time: new Date(lectureForm.starting_time).toISOString(),
+      venue: lectureForm.venue,
+      duration: lectureForm.duration,
+      topic: lectureForm.topic,
+    };
+    try {
+      if (editingLectureId !== null) {
+        await apiMutate(`/faculty/allocations/${allocationId}/lectures/${editingLectureId}/`, "PATCH", body);
+      } else {
+        await apiMutate(`/faculty/allocations/${allocationId}/lectures/`, "POST", body);
+      }
+      setAddingLecture(false);
+      setEditingLectureId(null);
+      showToast("Lecture saved.");
+      setRefreshKey((k) => k + 1);
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 401) {
+        navigate("/login", { replace: true });
+        return;
+      }
+      const { banner, fields } = apiFormErrors(err);
+      setError(banner);
+      setFieldErrors(fields);
+    } finally {
+      setSaving(false);
+    }
   }
 
-  function handleDeleteLecture(lectureId: string) {
-    const result = deleteLecture(allocationId, lectureId);
-    if (typeof result === "string") {
-      setError(result);
-      return;
-    }
-    if (expandedLectureId === lectureId) setExpandedLectureId(null);
+  async function handleDeleteLecture(lectureId: string) {
     setError(null);
-    refresh();
+    try {
+      await apiMutate(`/faculty/allocations/${allocationId}/lectures/${lectureId}/`, "DELETE");
+      if (expandedLectureId === lectureId) {
+        setExpandedLectureId(null);
+        setExpandedLecture(null);
+        setAttendanceDraft(null);
+      }
+      showToast("Lecture deleted.");
+      setRefreshKey((k) => k + 1);
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 401) {
+        navigate("/login", { replace: true });
+        return;
+      }
+      setError(apiErrorMessage(err));
+    }
   }
 
-  function toggleExpanded(lectureId: string) {
-    setExpandedLectureId((prev) => (prev === lectureId ? null : lectureId));
+  async function toggleExpanded(lectureId: string) {
+    if (expandedLectureId === lectureId) {
+      setExpandedLectureId(null);
+      setExpandedLecture(null);
+      setAttendanceDraft(null);
+      setRosterFilter("");
+      return;
+    }
+    setExpandedLectureId(lectureId);
     setRosterFilter("");
+    setError(null);
+    try {
+      // The list/nested lecture_set never carries attendance_set (see the comment above
+      // presentCounts) — fetch this one lecture's own detail to get its roster.
+      const fresh = await apiGet<Lecture>(`/faculty/allocations/${allocationId}/lectures/${lectureId}/`);
+      setExpandedLecture(fresh);
+      setAttendanceDraft(fresh.attendance_set);
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 401) {
+        navigate("/login", { replace: true });
+        return;
+      }
+      setError(apiErrorMessage(err));
+      setExpandedLectureId(null);
+    }
   }
 
-  function handleAttendance(lectureId: string, enrollmentId: number, isPresent: boolean) {
-    const result = setAttendance(allocationId, lectureId, enrollmentId, isPresent);
-    if (typeof result === "string") {
-      setError(result);
-      return;
-    }
-    setError(null);
-    refresh();
+  function handleAttendanceDraft(enrollmentId: number, isPresent: boolean) {
+    setAttendanceDraft((prev) => (prev ? prev.map((a) => (a.enrollment === enrollmentId ? { ...a, is_present: isPresent } : a)) : prev));
   }
 
   function markAll(isPresent: boolean) {
-    if (!expandedLecture) return;
-    for (const row of filteredRoster) {
-      setAttendance(allocationId, expandedLecture.lecture_id, row.enrollment, isPresent);
+    const visibleIds = new Set(filteredRoster.map((row) => row.enrollment));
+    setAttendanceDraft((prev) => (prev ? prev.map((a) => (visibleIds.has(a.enrollment) ? { ...a, is_present: isPresent } : a)) : prev));
+  }
+
+  async function handleSaveAttendance() {
+    if (!expandedLecture || !attendanceDraft) return;
+    setSavingAttendance(true);
+    setError(null);
+    try {
+      await apiMutate(`/faculty/allocations/${allocationId}/lectures/${expandedLecture.lecture_id}/`, "PATCH", {
+        starting_time: expandedLecture.starting_time,
+        venue: expandedLecture.venue,
+        duration: expandedLecture.duration,
+        topic: expandedLecture.topic,
+        attendance_set: attendanceDraft.map((a) => ({ id: a.id, enrollment: a.enrollment, is_present: a.is_present })),
+      });
+      setExpandedLectureId(null);
+      setExpandedLecture(null);
+      setAttendanceDraft(null);
+      showToast("Attendance saved.");
+      setRefreshKey((k) => k + 1);
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 401) {
+        navigate("/login", { replace: true });
+        return;
+      }
+      setError(apiErrorMessage(err));
+    } finally {
+      setSavingAttendance(false);
     }
-    refresh();
   }
 
   return (
     <DashboardShell
-      railItems={RAIL_ITEMS}
+      railItems={FACULTY_RAIL_ITEMS}
       activeRailId="allocations"
       homeHref="/faculty/dashboard"
+      profileHref="/faculty/profile"
       avatarInitials={avatarInitials}
+      avatarSrc={dashboard.faculty.image}
       pageTitle={`${detail.course} — Lectures`}
       subtitle={`${detail.session} · Semester ${detail.semester} · ${dashboard.faculty.institutional_email}`}
     >
@@ -180,7 +325,6 @@ export function FacultyAllocationLecturesPage() {
         ]}
       />
 
-      {message && <div className={formStyles.banner}>{message}</div>}
       {error && <div className={formStyles.errorBanner}>{error}</div>}
 
       <Panel
@@ -197,7 +341,7 @@ export function FacultyAllocationLecturesPage() {
           {!locked && (addingLecture || editingLectureId !== null) && (
             <form className={formStyles.qualRow} onSubmit={handleSaveLecture}>
               <div className={formStyles.row}>
-                <div className={formStyles.field}>
+                <div className={formStyles.field} data-invalid={fieldErrors.starting_time ? "true" : undefined}>
                   <label htmlFor="starting_time">Starting time</label>
                   <input
                     id="starting_time"
@@ -206,8 +350,9 @@ export function FacultyAllocationLecturesPage() {
                     value={lectureForm.starting_time}
                     onChange={(e) => setLectureForm({ ...lectureForm, starting_time: e.target.value })}
                   />
+                  {fieldErrors.starting_time && <span className={formStyles.fieldError}>{fieldErrors.starting_time}</span>}
                 </div>
-                <div className={formStyles.field}>
+                <div className={formStyles.field} data-invalid={fieldErrors.venue ? "true" : undefined}>
                   <label htmlFor="venue">Venue</label>
                   <input
                     id="venue"
@@ -215,8 +360,9 @@ export function FacultyAllocationLecturesPage() {
                     value={lectureForm.venue}
                     onChange={(e) => setLectureForm({ ...lectureForm, venue: e.target.value })}
                   />
+                  {fieldErrors.venue && <span className={formStyles.fieldError}>{fieldErrors.venue}</span>}
                 </div>
-                <div className={formStyles.field}>
+                <div className={formStyles.field} data-invalid={fieldErrors.duration ? "true" : undefined}>
                   <label htmlFor="duration">Duration (min)</label>
                   <input
                     id="duration"
@@ -226,9 +372,10 @@ export function FacultyAllocationLecturesPage() {
                     value={lectureForm.duration}
                     onChange={(e) => setLectureForm({ ...lectureForm, duration: Number(e.target.value) })}
                   />
+                  {fieldErrors.duration && <span className={formStyles.fieldError}>{fieldErrors.duration}</span>}
                 </div>
               </div>
-              <div className={formStyles.field}>
+              <div className={formStyles.field} data-invalid={fieldErrors.topic ? "true" : undefined}>
                 <label htmlFor="topic">Topic</label>
                 <input
                   id="topic"
@@ -236,12 +383,13 @@ export function FacultyAllocationLecturesPage() {
                   value={lectureForm.topic}
                   onChange={(e) => setLectureForm({ ...lectureForm, topic: e.target.value })}
                 />
+                {fieldErrors.topic && <span className={formStyles.fieldError}>{fieldErrors.topic}</span>}
               </div>
               <div className={formStyles.qualRowFooter}>
-                <button type="submit" className={formStyles.primaryButton}>
-                  Save
+                <button type="submit" className={formStyles.primaryButton} disabled={saving}>
+                  {saving ? "Saving…" : "Save"}
                 </button>
-                <button type="button" className={formStyles.secondaryButton} onClick={cancelLectureForm}>
+                <button type="button" className={formStyles.secondaryButton} onClick={cancelLectureForm} disabled={saving}>
                   Cancel
                 </button>
               </div>
@@ -269,10 +417,11 @@ export function FacultyAllocationLecturesPage() {
                 header: "Present",
                 align: "right",
                 render: (l) => {
-                  const presentCount = l.attendance_set.filter((a) => a.is_present).length;
+                  const counts = presentCounts[l.lecture_id];
+                  if (!counts) return <span className={formStyles.hint}>…</span>;
                   return (
-                    <Tag tone={presentCount === l.attendance_set.length ? "good" : "warning"}>
-                      {`${presentCount}/${l.attendance_set.length}`}
+                    <Tag tone={counts.present === counts.total ? "good" : "warning"}>
+                      {`${counts.present}/${counts.total}`}
                     </Tag>
                   );
                 },
@@ -312,14 +461,14 @@ export function FacultyAllocationLecturesPage() {
           title={`Attendance — Lecture ${expandedLecture.lecture_no}`}
           hint={`${formatDateTime(expandedLecture.starting_time)} · ${expandedLecture.venue} · ${expandedLecture.duration} min`}
           headerExtra={
-            <button type="button" className={formStyles.primaryButton} onClick={() => setExpandedLectureId(null)}>
-              Save
+            <button type="button" className={formStyles.primaryButton} onClick={handleSaveAttendance} disabled={savingAttendance || locked}>
+              {savingAttendance ? "Saving…" : "Save"}
             </button>
           }
         >
           <div className={styles.panelBody}>
             <div className={formStyles.actions}>
-              {expandedLecture.attendance_set.length > 8 && (
+              {(attendanceDraft ?? []).length > 8 && (
                 <input
                   type="text"
                   placeholder="Filter by student name or ID…"
@@ -367,7 +516,7 @@ export function FacultyAllocationLecturesPage() {
                     <input
                       type="checkbox"
                       checked={att.is_present}
-                      onChange={(e) => handleAttendance(expandedLecture.lecture_id, att.enrollment, e.target.checked)}
+                      onChange={(e) => handleAttendanceDraft(att.enrollment, e.target.checked)}
                       disabled={locked}
                     />
                   ),

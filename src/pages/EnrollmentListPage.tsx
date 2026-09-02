@@ -1,72 +1,43 @@
-import { useMemo, useState } from "react";
-import { Link } from "react-router-dom";
-import { DashboardShell } from "../components/layout/DashboardShell";
-import type { RailNavItem } from "../components/layout/Rail";
-import {
-  IconScroll,
-  IconHourglass,
-  IconInbox,
-  IconBars,
-  IconBook,
-  IconBuilding,
-  IconCalendar,
-  IconClipboard,
-  IconGraduationCap,
-  IconLayers,
-  IconGrid,
-  IconPeople,
-  IconPerson,
-  IconUserCheck,
-} from "../components/icons/Icons";
+import { useEffect, useMemo, useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
+import { useAdminPageConfig } from "../components/layout/AdminShellContext";
 import { Panel } from "../components/ui/Panel";
 import { Table, type Column } from "../components/ui/Table";
 import { FilterBar } from "../components/ui/FilterBar";
 import { Tag } from "../components/ui/Tag";
-import { mockEnrollments, selectEnrollmentListRows } from "../data/enrollmentDirectory";
-import { mockAdminDashboardResponse } from "../data/adminDashboard";
-import { mockCurrentSession } from "../data/session";
-import type { EnrollmentListRow } from "../types/dashboard";
-import type { EnrollmentStatus } from "../types/api";
+import { apiGetAllPages } from "../lib/auth";
+import { ApiError, apiErrorMessage } from "../lib/api";
+import type { AdminEnrollmentSummary, EnrollmentStatus } from "../types/api";
+import type { StatusTone } from "../types/dashboard";
 import styles from "./FacultyListPage.module.css";
 
-const RAIL_ITEMS: RailNavItem[] = [
-  { id: "dashboard", label: "Dashboard", icon: IconGrid, href: "/admin/dashboard" },
-  { id: "faculty", label: "Faculty", icon: IconPerson, href: "/admin/faculty" },
-  { id: "students", label: "Students", icon: IconPeople, href: "/admin/students" },
-  { id: "departments", label: "Departments", icon: IconBuilding, href: "/admin/departments" },
-  { id: "programs", label: "Programs", icon: IconLayers, href: "/admin/programs" },
-  { id: "courses", label: "Courses", icon: IconBook, href: "/admin/courses" },
-  { id: "classes", label: "Classes", icon: IconGraduationCap, href: "/admin/classes" },
-  { id: "allocations", label: "Allocations", icon: IconClipboard, href: "/admin/allocations" },
-  { id: "enrollments", label: "Enrollments", icon: IconUserCheck, href: "/admin/enrollments" },
-  { id: "sessions", label: "Sessions", icon: IconCalendar, href: "/admin/sessions" },
-  { id: "semesters", label: "Semesters", icon: IconHourglass, href: "/admin/semesters" },
-  { id: "transcripts", label: "Transcripts", icon: IconScroll, href: "/admin/transcripts" },
-  { id: "requests", label: "Requests", icon: IconInbox, href: "/admin/requests" },
-  { id: "reports", label: "Reports", icon: IconBars },
-];
-
 const STATUS_OPTIONS: EnrollmentStatus[] = ["Inactive", "Active", "Completed", "Dropped"];
+const ENROLLMENT_STATUS_TONE: Record<EnrollmentStatus, StatusTone> = {
+  Inactive: "warning",
+  Active: "good",
+  Completed: "critical",
+  Dropped: "critical",
+};
 
-const columns: Column<EnrollmentListRow>[] = [
+const columns: Column<AdminEnrollmentSummary>[] = [
   {
     key: "student",
     header: "Student",
     render: (row) => (
       <Link to={`/admin/students/${row.student}`} className={styles.nameLink}>
-        {row.studentName}
+        {row.student_info?.student_name ?? row.student}
       </Link>
     ),
   },
-  { key: "allocation", header: "Allocation", render: (row) => row.allocationLabel },
-  { key: "date", header: "Enrolled", render: (row) => row.enrollmentDate },
-  { key: "status", header: "Status", render: (row) => <Tag tone={row.status.tone}>{row.status.label}</Tag> },
-  { key: "gpa", header: "GPA", render: (row) => row.courseGpa ?? "—" },
+  { key: "allocation", header: "Allocation", render: (row) => `#${row.allocation}` },
+  { key: "date", header: "Enrolled", render: (row) => row.enrollment_date },
+  { key: "status", header: "Status", render: (row) => <Tag tone={ENROLLMENT_STATUS_TONE[row.status]}>{row.status}</Tag> },
+  { key: "gpa", header: "GPA", render: (row) => row.result?.course_gpa ?? "—" },
   {
     key: "detail",
     header: "",
     render: (row) => (
-      <Link to={row.detailHref} className={styles.nameLink}>
+      <Link to={`/admin/enrollments/${row.enrollment_id}`} className={styles.nameLink}>
         View
       </Link>
     ),
@@ -74,32 +45,50 @@ const columns: Column<EnrollmentListRow>[] = [
 ];
 
 export function EnrollmentListPage() {
-  const admin = mockAdminDashboardResponse.admin;
-  const avatarInitials = `${admin.first_name[0]}${admin.last_name[0]}`.toUpperCase();
+  useAdminPageConfig("Enrollments");
+  const navigate = useNavigate();
+  const [enrollments, setEnrollments] = useState<AdminEnrollmentSummary[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("");
 
+  useEffect(() => {
+    let cancelled = false;
+    apiGetAllPages<AdminEnrollmentSummary>("/admin/enrollments/")
+      .then((res) => {
+        if (!cancelled) setEnrollments(res);
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        if (err instanceof ApiError && err.status === 401) {
+          navigate("/login", { replace: true });
+          return;
+        }
+        setError(apiErrorMessage(err));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [navigate]);
+
   const rows = useMemo(() => {
-    return selectEnrollmentListRows(mockEnrollments).filter((row) => {
-      if (status && row.status.label !== status) return false;
-      if (search && !row.studentName.toLowerCase().includes(search.toLowerCase()) && !row.student.toLowerCase().includes(search.toLowerCase())) {
-        return false;
+    return (enrollments ?? []).filter((row) => {
+      if (status && row.status !== status) return false;
+      if (search) {
+        const needle = search.toLowerCase();
+        const name = row.student_info?.student_name ?? "";
+        if (!name.toLowerCase().includes(needle) && !row.student.toLowerCase().includes(needle)) return false;
       }
       return true;
     });
-  }, [search, status]);
+  }, [enrollments, status, search]);
+
+  if (error) {
+    return <div className={styles.empty}>{error}</div>;
+  }
 
   return (
-    <DashboardShell
-      railItems={RAIL_ITEMS}
-      activeRailId="enrollments"
-      homeHref="/admin/dashboard"
-      avatarInitials={avatarInitials}
-      pageTitle="Enrollments"
-      sessionLabel={mockCurrentSession}
-      subtitle={admin.institutional_email}
-      profileHref="/admin/profile"
-    >
+    <>
       <FilterBar
         searchValue={search}
         onSearchChange={setSearch}
@@ -117,13 +106,11 @@ export function EnrollmentListPage() {
         addLabel="+ New enrollment"
       />
 
-      <Panel title="Enrollments" hint={`${rows.length} of ${mockEnrollments.length}`}>
-        {rows.length > 0 ? (
-          <Table columns={columns} rows={rows} rowKey={(row) => String(row.enrollmentId)} />
-        ) : (
-          <p className={styles.empty}>No enrollments match these filters.</p>
-        )}
+      <Panel title="Enrollments" hint={enrollments ? `${rows.length} of ${enrollments.length}` : undefined}>
+        {!enrollments && <p className={styles.empty}>Loading enrollments…</p>}
+        {enrollments && rows.length > 0 && <Table columns={columns} rows={rows} rowKey={(row) => String(row.enrollment_id)} />}
+        {enrollments && rows.length === 0 && <p className={styles.empty}>No enrollments match these filters.</p>}
       </Panel>
-    </DashboardShell>
+    </>
   );
 }

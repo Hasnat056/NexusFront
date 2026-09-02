@@ -1,39 +1,6 @@
 import type { StudentProfileDetail } from "../types/api";
 import type { PersonFormShape } from "../types/dashboard";
-import { qualificationFormItemsToWire, qualificationsToFormItems } from "./qualificationForm";
-
-/**
- * Stand-in for GET /api/student/profile/ — the signed-in student's own record
- * (AdminModule's StudentSerializer, reused by StudentProfileView). Same person as
- * data/studentDashboard.ts's mockStudentDashboardResponse (Lucia Ferreira, NUM-STU-2023-114)
- * and data/studentEnrollments.ts's enrollments — kept in sync by hand, same tension already
- * documented across this app's other mock stores.
- */
-export const mockStudentProfile: StudentProfileDetail = {
-  person: {
-    user: { username: "l.ferreira@nexus.edu" },
-    image: null,
-    person_id: "NUM-STU-2023-114",
-    first_name: "Lucia",
-    last_name: "Ferreira",
-    father_name: "Mateus Ferreira",
-    gender: "Female",
-    dob: "2004-11-02",
-    cnic: "35202-9871234-5",
-    institutional_email: "l.ferreira@nexus.edu",
-    personal_email: "lucia.ferreira@gmail.com",
-    contact_number: "+92-300-9871234",
-    religion: "Christianity",
-    address: { country: "Pakistan", province: "Punjab", city: "Mianwali", zipcode: 42200, street_address: "Hostel C, Room 214" },
-    qualification_set: [
-      { degree_title: "FSc Pre-Engineering", education_board: "BISE Mianwali", passing_year: 2022, institution: "Namal Degree College", total_marks: 1100, obtained_marks: 987, is_current: false },
-    ],
-  },
-  program: "BS Computer Science",
-  student_class: 12,
-  admission_date: "2023-09-01",
-  status: "Active",
-};
+import { qualificationsToFormItems } from "./qualificationForm";
 
 /** get_fields() locks these person fields read_only whenever the caller is in the Student group
  * (self-editing) — first_name/last_name/father_name/person_id/institutional_email/cnic/gender/dob
@@ -76,23 +43,4 @@ export function studentProfileFormValueFromRecord(record: StudentProfileDetail):
     },
     qualification_set: qualificationsToFormItems(record.person.qualification_set),
   };
-}
-
-/** Stand-in for PUT /api/student/profile/ — only writes the fields the serializer actually
- * leaves editable for Student's own profile; identity and program/class/status fields are locked
- * server-side and never sent even though PersonFormFields renders them (read-only). */
-export function updateStudentProfile(input: StudentProfileFormValue): StudentProfileDetail {
-  mockStudentProfile.person.personal_email = input.personal_email || null;
-  mockStudentProfile.person.contact_number = input.contact_number;
-  mockStudentProfile.person.religion = input.religion || null;
-  mockStudentProfile.person.image = input.image;
-  mockStudentProfile.person.address = {
-    country: input.address.country,
-    province: input.address.province || null,
-    city: input.address.city,
-    zipcode: input.address.zipcode ? Number(input.address.zipcode) : null,
-    street_address: input.address.street_address || null,
-  };
-  mockStudentProfile.person.qualification_set = qualificationFormItemsToWire(input.qualification_set);
-  return mockStudentProfile;
 }

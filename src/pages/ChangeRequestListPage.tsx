@@ -1,114 +1,136 @@
-import { useMemo, useState } from "react";
-import { DashboardShell } from "../components/layout/DashboardShell";
-import type { RailNavItem } from "../components/layout/Rail";
-import {
-  IconScroll,
-  IconHourglass,
-  IconBars,
-  IconBook,
-  IconBuilding,
-  IconCalendar,
-  IconClipboard,
-  IconGraduationCap,
-  IconInbox,
-  IconLayers,
-  IconGrid,
-  IconPeople,
-  IconPerson,
-  IconUserCheck,
-} from "../components/icons/Icons";
+import { useEffect, useMemo, useState } from "react";
+import { useAdminPageConfig } from "../components/layout/AdminShellContext";
 import { Panel } from "../components/ui/Panel";
 import { Table, type Column } from "../components/ui/Table";
 import { FilterBar } from "../components/ui/FilterBar";
 import { Tag } from "../components/ui/Tag";
-import { Link } from "react-router-dom";
-import {
-  CHANGE_REQUEST_STATUS_TONE,
-  CHANGE_TYPE_LABEL,
-  mockChangeRequests,
-  selectChangeRequestListItems,
-} from "../data/changeRequests";
-import { mockAdminDashboardResponse } from "../data/adminDashboard";
-import { mockCurrentSession } from "../data/session";
-import type { ChangeRequest } from "../types/api";
-import type { ChangeRequestListItem } from "../data/changeRequests";
-import formStyles from "../components/ui/Form.module.css";
+import { Link, useNavigate } from "react-router-dom";
+import { apiGetAllPages, cached } from "../lib/auth";
+import { ApiError, apiErrorMessage } from "../lib/api";
+import { CHANGE_REQUEST_STATUS_TONE, CHANGE_TYPE_LABEL, changeRequestHeadline, formatRelativeTime } from "../data/changeRequests";
+import type { AdminDepartment, AdminFacultyListItem, AdminStudentListItem, ChangeRequest } from "../types/api";
 import styles from "./FacultyListPage.module.css";
-
-const RAIL_ITEMS: RailNavItem[] = [
-  { id: "dashboard", label: "Dashboard", icon: IconGrid, href: "/admin/dashboard" },
-  { id: "faculty", label: "Faculty", icon: IconPerson, href: "/admin/faculty" },
-  { id: "students", label: "Students", icon: IconPeople, href: "/admin/students" },
-  { id: "departments", label: "Departments", icon: IconBuilding, href: "/admin/departments" },
-  { id: "programs", label: "Programs", icon: IconLayers, href: "/admin/programs" },
-  { id: "courses", label: "Courses", icon: IconBook, href: "/admin/courses" },
-  { id: "classes", label: "Classes", icon: IconGraduationCap, href: "/admin/classes" },
-  { id: "allocations", label: "Allocations", icon: IconClipboard, href: "/admin/allocations" },
-  { id: "enrollments", label: "Enrollments", icon: IconUserCheck, href: "/admin/enrollments" },
-  { id: "sessions", label: "Sessions", icon: IconCalendar, href: "/admin/sessions" },
-  { id: "semesters", label: "Semesters", icon: IconHourglass, href: "/admin/semesters" },
-  { id: "transcripts", label: "Transcripts", icon: IconScroll, href: "/admin/transcripts" },
-  { id: "requests", label: "Requests", icon: IconInbox, href: "/admin/requests" },
-  { id: "reports", label: "Reports", icon: IconBars },
-];
 
 const STATUS_OPTIONS: ChangeRequest["status"][] = ["pending", "confirmed", "applied", "declined", "expired"];
 const TYPE_OPTIONS: ChangeRequest["change_type"][] = ["hod_change", "faculty_delete", "student_delete", "result_calculation"];
 
-const columns: Column<ChangeRequestListItem & { type: string; requestedBy: number; isFacultyRequested: boolean }>[] = [
-  {
-    key: "headline",
-    header: "Request",
-    render: (row) => (
-      <Link to={row.detailHref} className={styles.nameLink}>
-        {row.headline}
-      </Link>
-    ),
-  },
-  { key: "type", header: "Type", render: (row) => row.type },
-  { key: "status", header: "Status", render: (row) => <Tag tone={CHANGE_REQUEST_STATUS_TONE[row.status]}>{row.status}</Tag> },
-  {
-    key: "requestedBy",
-    header: "Requested by",
-    render: (row) => (row.isFacultyRequested ? `Faculty #${row.requestedBy}` : `Admin #${row.requestedBy}`),
-  },
-  { key: "time", header: "Requested", render: (row) => row.relativeTime },
-];
+interface Row {
+  id: number;
+  headline: string;
+  status: ChangeRequest["status"];
+  relativeTime: string;
+  requestedBy: number;
+}
 
 export function ChangeRequestListPage() {
-  const admin = mockAdminDashboardResponse.admin;
-  const avatarInitials = `${admin.first_name[0]}${admin.last_name[0]}`.toUpperCase();
+  useAdminPageConfig("Change requests");
+  const navigate = useNavigate();
+  const [requests, setRequests] = useState<ChangeRequest[] | null>(null);
+  const [departments, setDepartments] = useState<AdminDepartment[]>([]);
+  const [faculty, setFaculty] = useState<AdminFacultyListItem[]>([]);
+  const [students, setStudents] = useState<AdminStudentListItem[]>([]);
+  const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("");
   const [type, setType] = useState("");
 
-  const rows = useMemo(() => {
-    const filtered = mockChangeRequests.filter((cr) => {
+  useEffect(() => {
+    let cancelled = false;
+    Promise.all([
+      apiGetAllPages<ChangeRequest>("/admin/requests/"),
+      cached("admin:departments", () => apiGetAllPages<AdminDepartment>("/admin/departments/")),
+      cached("admin:all-faculty", () => apiGetAllPages<AdminFacultyListItem>("/admin/faculty/")),
+      cached("admin:all-students", () => apiGetAllPages<AdminStudentListItem>("/admin/students/")),
+    ])
+      .then(([requestsRes, departmentsRes, facultyRes, studentsRes]) => {
+        if (cancelled) return;
+        setRequests(requestsRes);
+        setDepartments(departmentsRes);
+        setFaculty(facultyRes);
+        setStudents(studentsRes);
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        if (err instanceof ApiError && err.status === 401) {
+          navigate("/login", { replace: true });
+          return;
+        }
+        setError(apiErrorMessage(err));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [navigate]);
+
+  function headlineFor(cr: ChangeRequest): string {
+    if (cr.change_type === "hod_change") {
+      const dept = departments.find((d) => d.department_id === cr.department);
+      return `${CHANGE_TYPE_LABEL.hod_change} requested — ${dept?.department_name ?? cr.department ?? "department"}`;
+    }
+    if (cr.change_type === "faculty_delete") {
+      const f = faculty.find((x) => x.person.person_id === cr.target_faculty);
+      const name = f ? `${f.person.first_name} ${f.person.last_name}` : cr.target_faculty;
+      return `${CHANGE_TYPE_LABEL.faculty_delete} requested — ${name ?? "faculty member"}`;
+    }
+    if (cr.change_type === "student_delete") {
+      const s = students.find((x) => x.person.person_id === cr.target_student);
+      const name = s ? `${s.person.first_name} ${s.person.last_name}` : cr.target_student;
+      return `${CHANGE_TYPE_LABEL.student_delete} requested — ${name ?? "student"}`;
+    }
+    return changeRequestHeadline(cr);
+  }
+
+  const rows: Row[] = useMemo(() => {
+    return (requests ?? []).map((cr) => ({
+      id: cr.id,
+      headline: headlineFor(cr),
+      status: cr.status,
+      relativeTime: formatRelativeTime(cr.requested_at),
+      requestedBy: cr.requested_by,
+    }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [requests, departments, faculty, students]);
+
+  const filteredRows = useMemo(() => {
+    return rows.filter((row) => {
+      const cr = requests?.find((r) => r.id === row.id);
+      if (!cr) return false;
       if (status && cr.status !== status) return false;
       if (type && cr.change_type !== type) return false;
+      if (search && !row.headline.toLowerCase().includes(search.toLowerCase())) return false;
       return true;
     });
-    return selectChangeRequestListItems(filtered)
-      .map((item, i) => ({
-        ...item,
-        type: CHANGE_TYPE_LABEL[filtered[i].change_type],
-        requestedBy: filtered[i].requested_by,
-        isFacultyRequested: filtered[i].change_type === "result_calculation",
-      }))
-      .filter((row) => !search || row.headline.toLowerCase().includes(search.toLowerCase()));
-  }, [search, status, type]);
+  }, [rows, requests, status, type, search]);
+
+  const columns: Column<Row>[] = [
+    {
+      key: "headline",
+      header: "Request",
+      render: (row) => (
+        <Link to={`/admin/requests/${row.id}`} className={styles.nameLink}>
+          {row.headline}
+        </Link>
+      ),
+    },
+    {
+      key: "type",
+      header: "Type",
+      render: (row) => {
+        const cr = requests?.find((r) => r.id === row.id);
+        return cr ? CHANGE_TYPE_LABEL[cr.change_type] : "";
+      },
+    },
+    { key: "status", header: "Status", render: (row) => <Tag tone={CHANGE_REQUEST_STATUS_TONE[row.status]}>{row.status}</Tag> },
+    { key: "requestedBy", header: "Requested by", render: (row) => `User #${row.requestedBy}` },
+    { key: "time", header: "Requested", render: (row) => row.relativeTime },
+  ];
+
+  if (error) {
+    return <div className={styles.empty}>{error}</div>;
+  }
 
   return (
-    <DashboardShell
-      railItems={RAIL_ITEMS}
-      activeRailId="requests"
-      homeHref="/admin/dashboard"
-      avatarInitials={avatarInitials}
-      pageTitle="Change requests"
-      sessionLabel={mockCurrentSession}
-      subtitle={admin.institutional_email}
-      profileHref="/admin/profile"
-    >
+    <>
       <FilterBar
         searchValue={search}
         onSearchChange={setSearch}
@@ -130,18 +152,11 @@ export function ChangeRequestListPage() {
           },
         ]}
       />
-      <p className={formStyles.hint}>
-        Status and type filter GET /api/admin/requests/ directly (ChangeRequestListAPIView.filterset_fields);
-        search is client-side only — the real endpoint has no search_fields configured.
-      </p>
-
-      <Panel title="Change requests" hint={`${rows.length} of ${mockChangeRequests.length}`}>
-        {rows.length > 0 ? (
-          <Table columns={columns} rows={rows} rowKey={(row) => String(row.id)} />
-        ) : (
-          <p className={styles.empty}>No change requests match these filters.</p>
-        )}
+      <Panel title="Change requests" hint={requests ? `${filteredRows.length} of ${requests.length}` : undefined}>
+        {!requests && <p className={styles.empty}>Loading change requests…</p>}
+        {requests && filteredRows.length > 0 && <Table columns={columns} rows={filteredRows} rowKey={(row) => String(row.id)} />}
+        {requests && filteredRows.length === 0 && <p className={styles.empty}>No change requests match these filters.</p>}
       </Panel>
-    </DashboardShell>
+    </>
   );
 }

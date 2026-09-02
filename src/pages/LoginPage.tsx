@@ -1,9 +1,10 @@
 import { useState, type FormEvent } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
+import { login, ROLES, type Role } from "../lib/auth";
+import { apiErrorMessage } from "../lib/api";
+import { useCurrentSessionLabel } from "../hooks/useCurrentSession";
+import { IconEye, IconEyeOff } from "../components/icons/Icons";
 import styles from "./LoginPage.module.css";
-
-const ROLES = ["Admin", "Faculty", "Student"] as const;
-type Role = (typeof ROLES)[number];
 
 const ROLE_HOME: Record<Role, string> = {
   Admin: "/admin/dashboard",
@@ -13,19 +14,36 @@ const ROLE_HOME: Record<Role, string> = {
 
 export function LoginPage() {
   const navigate = useNavigate();
+  const sessionLabel = useCurrentSessionLabel();
   const [role, setRole] = useState<Role>("Admin");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<{ username?: string; password?: string }>({});
+  const [submitting, setSubmitting] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
 
-  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!username || !password) {
-      setError("Enter your username and password.");
+    const errors: { username?: string; password?: string } = {};
+    if (!username) errors.username = "Enter your username.";
+    if (!password) errors.password = "Enter your password.";
+    if (Object.keys(errors).length > 0) {
+      setFieldErrors(errors);
+      setError(null);
       return;
     }
+    setFieldErrors({});
     setError(null);
-    navigate(ROLE_HOME[role]);
+    setSubmitting(true);
+    try {
+      await login(username, password, role);
+      navigate(ROLE_HOME[role]);
+    } catch (err) {
+      setError(apiErrorMessage(err));
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   return (
@@ -63,36 +81,67 @@ export function LoginPage() {
         </div>
 
         <form onSubmit={handleSubmit} noValidate>
-          <div className={styles.field}>
+          <div className={styles.field} data-invalid={fieldErrors.username ? "true" : undefined}>
             <label htmlFor="username">Username</label>
             <input
               id="username"
               name="username"
               autoComplete="username"
+              autoFocus
               value={username}
-              onChange={(e) => setUsername(e.target.value)}
+              onChange={(e) => {
+                setUsername(e.target.value);
+                if (fieldErrors.username) setFieldErrors((f) => ({ ...f, username: undefined }));
+                if (error) setError(null);
+              }}
               placeholder="r.hays"
             />
+            {fieldErrors.username && <span className={styles.fieldError}>{fieldErrors.username}</span>}
           </div>
-          <div className={styles.field}>
+          <div className={styles.field} data-invalid={fieldErrors.password ? "true" : undefined}>
             <label htmlFor="password">Password</label>
-            <input
-              id="password"
-              name="password"
-              type="password"
-              autoComplete="current-password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="••••••••••••"
-            />
+            <div className={styles.passwordRow}>
+              <input
+                id="password"
+                name="password"
+                type={showPassword ? "text" : "password"}
+                autoComplete="current-password"
+                value={password}
+                onChange={(e) => {
+                  setPassword(e.target.value);
+                  if (fieldErrors.password) setFieldErrors((f) => ({ ...f, password: undefined }));
+                  if (error) setError(null);
+                }}
+                placeholder="••••••••••••"
+              />
+              <button
+                type="button"
+                className={styles.passwordToggle}
+                onClick={() => setShowPassword((v) => !v)}
+                aria-label={showPassword ? "Hide password" : "Show password"}
+                aria-pressed={showPassword}
+              >
+                {showPassword ? <IconEyeOff /> : <IconEye />}
+              </button>
+            </div>
+            {fieldErrors.password && <span className={styles.fieldError}>{fieldErrors.password}</span>}
           </div>
           <div className={styles.meta}>
-            <span>Fall 2026 · Active term</span>
-            <a href="#forgot-password">Forgot password?</a>
+            {sessionLabel ? (
+              <span className={styles.sessionPill}>
+                <span className={styles.dot} />
+                {sessionLabel}
+              </span>
+            ) : (
+              <span />
+            )}
+            <Link to="/forgot-password" className={styles.metaLink}>
+              Forgot password?
+            </Link>
           </div>
           {error && <p className={styles.error}>{error}</p>}
-          <button type="submit" className={styles.submit}>
-            Sign in
+          <button type="submit" className={styles.submit} disabled={submitting}>
+            {submitting ? "Signing in…" : "Sign in"}
           </button>
         </form>
       </div>

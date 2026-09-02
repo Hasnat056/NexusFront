@@ -1,14 +1,3 @@
-.devNote {
-  background: var(--color-surface-sunken);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-lg);
-  padding: 0.85rem 1.1rem;
-  margin: 0;
-  font-size: 0.78rem;
-  color: var(--color-muted);
-  line-height: 1.5;
-}
-
 .overviewBody {
   display: flex;
   flex-direction: column;

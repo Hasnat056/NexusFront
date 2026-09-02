@@ -37,7 +37,7 @@ export interface YearlyCount {
 }
 
 export interface YearlyAdmissionRow {
-  "program_id__department_id__department_name": string;
+  "program__department__department_name": string;
   year: number;
   count: number;
 }
@@ -84,6 +84,28 @@ export interface ChangeRequest {
   requested_at: string;
   confirmed_at: string | null;
   applied_at: string | null;
+}
+
+/**
+ * GET /api/notifications/ (NotificationModule/views.py::NotificationListAPIView), shared
+ * unmodified across all three roles — mounted at top-level `/api/notifications/`, not nested
+ * under admin/faculty/student, and scoped server-side to `recipient=request.user`. `target_type`
+ * is the lowercased model name of whatever the notification points at (e.g. "changerequest"),
+ * derived from a GenericForeignKey; `object_id` is that object's pk. Marking read is a separate
+ * PATCH (single: `/api/notifications/<id>/read/`, bulk: `/api/notifications/mark-all-read/`) —
+ * this list itself is read-only.
+ */
+export type NotificationLevel = "info" | "action_required";
+
+export interface Notification {
+  id: number;
+  verb: string;
+  message: string;
+  level: NotificationLevel;
+  target_type: string | null;
+  object_id: number | null;
+  read_at: string | null;
+  created_at: string;
 }
 
 /**
@@ -346,6 +368,18 @@ export interface StudentAllocationDetails {
 
 export type EnrollmentStatus = "Inactive" | "Active" | "Completed" | "Dropped";
 
+/** Nested on StudentEnrollment as `result` (StudentEnrollmentSerializer.get_result — a
+ * SerializerMethodField, not a real DecimalField instance, so unlike every other Decimal on this
+ * API these two DON'T get string-coerced — verified against a live response). Both DecimalFields
+ * come through as plain numbers here. */
+export interface EnrollmentResult {
+  course_gpa: number | null;
+  obtained_marks: number | null;
+}
+
+/** get_result() returns the whole `result` key as `None` — not `{course_gpa: null, ...}` — both
+ * when status isn't 'Completed' and when status IS 'Completed' but Faculty hasn't calculated a
+ * Result yet (Result.DoesNotExist). Always null-check the whole field, not just its members. */
 export interface StudentEnrollment {
   url: string;
   enrollment_id: number;
@@ -353,6 +387,7 @@ export interface StudentEnrollment {
   allocation: number;
   status: EnrollmentStatus;
   allocation_details: StudentAllocationDetails;
+  result: EnrollmentResult | null;
 }
 
 export interface PaginatedResponse<T> {
@@ -367,9 +402,10 @@ export type StudentEnrollmentsResponse = PaginatedResponse<StudentEnrollment>;
 /** Nested under StudentAttendanceSummary.attendance_details — one row per lecture the student's
  * enrollment has an Attendance record for (StudentModule/serializers.py::AttendanceSerializer).
  * Bare `lecture` is the Lecture pk, not a nested object — there's no course context here because
- * the parent object already carries course_details. */
+ * the parent object already carries course_details. Lecture's pk is a string ("<allocation_id>-
+ * <lecture_no>", e.g. "5-1"), not numeric — verified against a live response, not just the model. */
 export interface LectureAttendanceEntry {
-  lecture: number;
+  lecture: string;
   attendance_date: string;
   is_present: boolean;
 }
@@ -411,13 +447,16 @@ export interface StudentProfileDetail {
  * `rating` are ever written. ReviewPermission blocks DELETE for everyone (Student included) — a
  * review can be created and edited but never removed via the API, so no delete action exists.
  * Faculty/Admin get read-only access (SAFE_METHODS only); Student can only see/edit their own.
+ * `rating` is a DecimalField (Models/models.py::Reviews, max_digits=4, decimal_places=2, range
+ * 0.00–10.00 via a CheckConstraint) — DRF serializes it as a string ("5.00"), not a number;
+ * verified against a live response. Writing a plain JSON number back is still accepted fine.
  */
 export interface Review {
   urls: string;
   review_id: number;
   enrollment: number;
   review_text: string;
-  rating: number;
+  rating: string;
   timestamp: string;
 }
 
@@ -589,8 +628,8 @@ export interface AdminFacultyDetail extends AdminFacultyListItem {
  */
 export interface AdminEnrollmentResult {
   result_id: number;
-  obtained_marks: number;
-  course_gpa: number;
+  obtained_marks: number | null;
+  course_gpa: number | null;
 }
 
 export interface AdminEnrollmentSummary {
@@ -609,6 +648,9 @@ export interface AdminStudentListItem {
   person: PersonRecord;
   program: string;
   student_class: number;
+  /** Read-only — StringRelatedField(source='student_class') on StudentSerializer, i.e. Class.
+   * __str__(): "{program_id}-{batch_year}". Present on both list and detail responses. */
+  student_class_display: string;
   admission_date: string;
   status: StudentStatus;
 }
@@ -863,6 +905,24 @@ export interface AdminSemester {
   associated_class: string;
 }
 
+export type CurrentAcademicSessionStatus = "Initiated" | "Available" | "Active";
+
+/**
+ * GET /api/sessions/current/ (CurrentSessionView) — public/AllowAny, unauthenticated, no
+ * pagination. Every AcademicSession currently Initiated/Available/Active (Inactive/Completed
+ * excluded), ordered Active > Available > Initiated server-side, so `[0]` is "the" session to
+ * show as a pill when more than one happens to be live at once. availability_deadline is a
+ * computed property (activation_deadline + availability_delta days), not a stored column.
+ */
+export interface CurrentAcademicSession {
+  id: number;
+  period: "Fall" | "Spring";
+  year: number;
+  status: CurrentAcademicSessionStatus;
+  availability_deadline: string | null;
+  closing_deadline: string | null;
+}
+
 /**
  * GET/POST /api/admin/transcripts/ (TranscriptListCreateAPIView, AdminModule/urls.py:44;
  * TranscriptSerializer, AdminModule/serializers.py:808-849). `Meta.fields` is exactly
@@ -903,4 +963,19 @@ export interface AdminTranscript {
   semester: number;
   total_credits: number;
   semester_gpa: number;
+}
+
+/**
+ * GET /api/student/transcripts/ (StudentTranscriptListAPIView) — this student's own Transcript
+ * rows, one per completed semester. Same underlying model as AdminTranscript above, but scoped to
+ * `request.user` and serialized with `id` instead of `student` (StudentTranscriptSerializer).
+ * `total_credits`/`semester_gpa` are exactly what BulkTranscriptSerializer.create() computed at
+ * semester-close time — see AdminTranscript's doc comment for the full generation writeup. No
+ * `session` label here (just the numeric semester id) — this student's own enrollments carry that.
+ */
+export interface StudentTranscript {
+  id: number;
+  semester: number;
+  total_credits: number;
+  semester_gpa: string;
 }

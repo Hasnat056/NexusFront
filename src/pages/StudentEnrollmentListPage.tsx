@@ -1,28 +1,18 @@
-import { useState } from "react";
-import { Link } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
 import { DashboardShell } from "../components/layout/DashboardShell";
-import type { RailNavItem } from "../components/layout/Rail";
-import { IconCalendar, IconGrid, IconPerson, IconScroll, IconTerminal, IconUserCheck } from "../components/icons/Icons";
+import { STUDENT_RAIL_ITEMS } from "../components/layout/studentRailItems";
 import { FilterBar } from "../components/ui/FilterBar";
 import { Panel } from "../components/ui/Panel";
 import { Table, type Column } from "../components/ui/Table";
 import { Tag } from "../components/ui/Tag";
 import type { StatusTone } from "../types/dashboard";
-import type { EnrollmentStatus, StudentEnrollment } from "../types/api";
-import { mockAllEnrollmentsResponse } from "../data/studentEnrollments";
-import { mockStudentDashboardResponse } from "../data/studentDashboard";
-import { mockCurrentSession } from "../data/session";
+import type { EnrollmentStatus, StudentDashboardResponse, StudentEnrollment } from "../types/api";
+import { useCurrentSessionLabel } from "../hooks/useCurrentSession";
+import { apiGet, apiGetAllPages } from "../lib/auth";
+import { ApiError, apiErrorMessage } from "../lib/api";
 import formStyles from "../components/ui/Form.module.css";
 import styles from "./FacultyListPage.module.css";
-
-const RAIL_ITEMS: RailNavItem[] = [
-  { id: "dashboard", label: "Dashboard", icon: IconGrid, href: "/student/dashboard" },
-  { id: "enrollments", label: "Enrollments", icon: IconUserCheck, href: "/student/enrollments" },
-  { id: "transcript", label: "Transcript", icon: IconScroll, href: "/student/transcript" },
-  { id: "attendance", label: "Attendance", icon: IconCalendar, href: "/student/attendance" },
-  { id: "profile", label: "Profile", icon: IconPerson, href: "/student/profile" },
-  { id: "scratchpad", label: "Scratchpad", icon: IconTerminal, href: "/student/scratchpad" },
-];
 
 const ENROLLMENT_STATUS_TONE: Record<EnrollmentStatus, StatusTone> = {
   Active: "good",
@@ -60,16 +50,15 @@ const columns: Column<StudentEnrollment>[] = [
   { key: "status", header: "Status", render: (e) => <Tag tone={ENROLLMENT_STATUS_TONE[e.status]}>{e.status}</Tag> },
   {
     key: "result",
-    header: "",
+    header: "Result",
     align: "right",
     render: (e) =>
-      e.status === "Completed" ? (
-        <Link
-          to={`/student/transcript/${e.allocation_details.semester_id}?course=${e.enrollment_id}`}
-          className={formStyles.secondaryButton}
-        >
-          View result
+      e.status === "Completed" && e.result?.course_gpa != null ? (
+        <Link to={`/student/transcript/${e.allocation_details.semester_id}?course=${e.enrollment_id}`} className={styles.nameLink}>
+          {`GPA ${e.result.course_gpa.toFixed(2)}`}
         </Link>
+      ) : e.status === "Completed" ? (
+        "Pending"
       ) : (
         "—"
       ),
@@ -77,14 +66,57 @@ const columns: Column<StudentEnrollment>[] = [
 ];
 
 export function StudentEnrollmentListPage() {
-  const dashboard = mockStudentDashboardResponse;
-  const avatarInitials = `${dashboard.first_name[0]}${dashboard.last_name[0]}`.toUpperCase();
+  const navigate = useNavigate();
+  const sessionLabel = useCurrentSessionLabel();
+  const [dashboard, setDashboard] = useState<StudentDashboardResponse | null>(null);
+  const [enrollments, setEnrollments] = useState<StudentEnrollment[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("");
 
-  const allEnrollments = mockAllEnrollmentsResponse().results;
+  useEffect(() => {
+    let cancelled = false;
+    Promise.all([
+      apiGet<StudentDashboardResponse>("/student/dashboard/"),
+      apiGetAllPages<StudentEnrollment>("/student/enrollments/"),
+    ])
+      .then(([dashboardRes, enrollmentsRes]) => {
+        if (cancelled) return;
+        setDashboard(dashboardRes);
+        setEnrollments(enrollmentsRes);
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        if (err instanceof ApiError && err.status === 401) {
+          navigate("/login", { replace: true });
+          return;
+        }
+        setError(apiErrorMessage(err));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [navigate]);
 
-  const rows = allEnrollments.filter((e) => {
+  const avatarInitials = dashboard ? `${dashboard.first_name[0]}${dashboard.last_name[0]}`.toUpperCase() : "—";
+
+  if (error) {
+    return (
+      <DashboardShell railItems={STUDENT_RAIL_ITEMS} activeRailId="enrollments" homeHref="/student/dashboard" profileHref="/student/profile" avatarInitials={avatarInitials} pageTitle="Enrollments" subtitle="">
+        <div className={formStyles.errorBanner}>{error}</div>
+      </DashboardShell>
+    );
+  }
+
+  if (!dashboard || !enrollments) {
+    return (
+      <DashboardShell railItems={STUDENT_RAIL_ITEMS} activeRailId="enrollments" homeHref="/student/dashboard" profileHref="/student/profile" avatarInitials={avatarInitials} pageTitle="Enrollments" subtitle="">
+        <p className={styles.empty}>Loading enrollments…</p>
+      </DashboardShell>
+    );
+  }
+
+  const rows = enrollments.filter((e) => {
     if (status && e.status !== status) return false;
     if (search) {
       const course = e.allocation_details.course_details;
@@ -96,12 +128,13 @@ export function StudentEnrollmentListPage() {
 
   return (
     <DashboardShell
-      railItems={RAIL_ITEMS}
+      railItems={STUDENT_RAIL_ITEMS}
       activeRailId="enrollments"
       homeHref="/student/dashboard"
       avatarInitials={avatarInitials}
+      avatarSrc={dashboard.image}
       pageTitle="Enrollments"
-      sessionLabel={mockCurrentSession}
+      sessionLabel={sessionLabel ?? undefined}
       subtitle={dashboard.institutional_email}
       profileHref="/student/profile"
     >
@@ -120,7 +153,7 @@ export function StudentEnrollmentListPage() {
         ]}
       />
 
-      <Panel title="Enrollments" hint={`${rows.length} of ${allEnrollments.length}`}>
+      <Panel title="Enrollments" hint={`${rows.length} of ${enrollments.length}`}>
         {rows.length > 0 ? (
           <Table columns={columns} rows={rows} rowKey={(e) => String(e.enrollment_id)} />
         ) : (

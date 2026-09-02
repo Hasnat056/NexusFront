@@ -1,54 +1,25 @@
-import { useMemo, useState } from "react";
-import { Link } from "react-router-dom";
-import { DashboardShell } from "../components/layout/DashboardShell";
-import type { RailNavItem } from "../components/layout/Rail";
-import {
-  IconScroll,
-  IconHourglass,
-  IconInbox,
-  IconBars,
-  IconBook,
-  IconBuilding,
-  IconCalendar,
-  IconClipboard,
-  IconGraduationCap,
-  IconLayers,
-  IconGrid,
-  IconPeople,
-  IconPerson,
-  IconUserCheck,
-} from "../components/icons/Icons";
+import { useEffect, useMemo, useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
+import { useAdminPageConfig } from "../components/layout/AdminShellContext";
 import { Panel } from "../components/ui/Panel";
 import { Table, type Column } from "../components/ui/Table";
 import { FilterBar } from "../components/ui/FilterBar";
 import { Tag } from "../components/ui/Tag";
-import { mockAllocations, selectAllocationListRows } from "../data/allocationDirectory";
-import { mockAdminDashboardResponse } from "../data/adminDashboard";
-import { mockCurrentSession } from "../data/session";
-import type { AllocationListRow } from "../types/dashboard";
-import type { CourseAllocationStatus } from "../types/api";
+import { apiGetAllPages } from "../lib/auth";
+import { ApiError, apiErrorMessage } from "../lib/api";
+import type { AdminCourseAllocationSummary, CourseAllocationStatus } from "../types/api";
+import type { StatusTone } from "../types/dashboard";
 import styles from "./FacultyListPage.module.css";
 
-const RAIL_ITEMS: RailNavItem[] = [
-  { id: "dashboard", label: "Dashboard", icon: IconGrid, href: "/admin/dashboard" },
-  { id: "faculty", label: "Faculty", icon: IconPerson, href: "/admin/faculty" },
-  { id: "students", label: "Students", icon: IconPeople, href: "/admin/students" },
-  { id: "departments", label: "Departments", icon: IconBuilding, href: "/admin/departments" },
-  { id: "programs", label: "Programs", icon: IconLayers, href: "/admin/programs" },
-  { id: "courses", label: "Courses", icon: IconBook, href: "/admin/courses" },
-  { id: "classes", label: "Classes", icon: IconGraduationCap, href: "/admin/classes" },
-  { id: "allocations", label: "Allocations", icon: IconClipboard, href: "/admin/allocations" },
-  { id: "enrollments", label: "Enrollments", icon: IconUserCheck, href: "/admin/enrollments" },
-  { id: "sessions", label: "Sessions", icon: IconCalendar, href: "/admin/sessions" },
-  { id: "semesters", label: "Semesters", icon: IconHourglass, href: "/admin/semesters" },
-  { id: "transcripts", label: "Transcripts", icon: IconScroll, href: "/admin/transcripts" },
-  { id: "requests", label: "Requests", icon: IconInbox, href: "/admin/requests" },
-  { id: "reports", label: "Reports", icon: IconBars },
-];
-
 const STATUS_OPTIONS: CourseAllocationStatus[] = ["Inactive", "Ongoing", "Completed", "Cancelled"];
+const ALLOCATION_STATUS_TONE: Record<CourseAllocationStatus, StatusTone> = {
+  Inactive: "warning",
+  Ongoing: "good",
+  Completed: "critical",
+  Cancelled: "critical",
+};
 
-const columns: Column<AllocationListRow>[] = [
+const columns: Column<AdminCourseAllocationSummary>[] = [
   {
     key: "faculty",
     header: "Faculty",
@@ -67,14 +38,18 @@ const columns: Column<AllocationListRow>[] = [
       </Link>
     ),
   },
-  { key: "semester", header: "Semester", render: (row) => row.semesterLabel },
+  { key: "semester", header: "Semester", render: (row) => `#${row.semester}` },
   { key: "session", header: "Session", render: (row) => row.session },
-  { key: "status", header: "Status", render: (row) => <Tag tone={row.status.tone}>{row.status.label}</Tag> },
+  {
+    key: "status",
+    header: "Status",
+    render: (row) => <Tag tone={ALLOCATION_STATUS_TONE[row.status]}>{row.status}</Tag>,
+  },
   {
     key: "detail",
     header: "",
     render: (row) => (
-      <Link to={row.detailHref} className={styles.nameLink}>
+      <Link to={`/admin/allocations/${row.allocation_id}`} className={styles.nameLink}>
         View
       </Link>
     ),
@@ -82,33 +57,49 @@ const columns: Column<AllocationListRow>[] = [
 ];
 
 export function AllocationListPage() {
-  const admin = mockAdminDashboardResponse.admin;
-  const avatarInitials = `${admin.first_name[0]}${admin.last_name[0]}`.toUpperCase();
+  useAdminPageConfig("Allocations");
+  const navigate = useNavigate();
+  const [allocations, setAllocations] = useState<AdminCourseAllocationSummary[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("");
 
+  useEffect(() => {
+    let cancelled = false;
+    apiGetAllPages<AdminCourseAllocationSummary>("/admin/allocations/")
+      .then((res) => {
+        if (!cancelled) setAllocations(res);
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        if (err instanceof ApiError && err.status === 401) {
+          navigate("/login", { replace: true });
+          return;
+        }
+        setError(apiErrorMessage(err));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [navigate]);
+
   const rows = useMemo(() => {
-    return selectAllocationListRows(mockAllocations).filter((row) => {
-      if (status && row.status.label !== status) return false;
+    return (allocations ?? []).filter((row) => {
+      if (status && row.status !== status) return false;
       if (search) {
         const needle = search.toLowerCase();
         if (!row.faculty.toLowerCase().includes(needle) && !row.course.toLowerCase().includes(needle)) return false;
       }
       return true;
     });
-  }, [search, status]);
+  }, [allocations, status, search]);
+
+  if (error) {
+    return <div className={styles.empty}>{error}</div>;
+  }
 
   return (
-    <DashboardShell
-      railItems={RAIL_ITEMS}
-      activeRailId="allocations"
-      homeHref="/admin/dashboard"
-      avatarInitials={avatarInitials}
-      pageTitle="Allocations"
-      sessionLabel={mockCurrentSession}
-      subtitle={admin.institutional_email}
-      profileHref="/admin/profile"
-    >
+    <>
       <FilterBar
         searchValue={search}
         onSearchChange={setSearch}
@@ -126,13 +117,11 @@ export function AllocationListPage() {
         addLabel="+ New allocation"
       />
 
-      <Panel title="Allocations" hint={`${rows.length} of ${mockAllocations.length}`}>
-        {rows.length > 0 ? (
-          <Table columns={columns} rows={rows} rowKey={(row) => String(row.allocationId)} />
-        ) : (
-          <p className={styles.empty}>No allocations match these filters.</p>
-        )}
+      <Panel title="Allocations" hint={allocations ? `${rows.length} of ${allocations.length}` : undefined}>
+        {!allocations && <p className={styles.empty}>Loading allocations…</p>}
+        {allocations && rows.length > 0 && <Table columns={columns} rows={rows} rowKey={(row) => String(row.allocation_id)} />}
+        {allocations && rows.length === 0 && <p className={styles.empty}>No allocations match these filters.</p>}
       </Panel>
-    </DashboardShell>
+    </>
   );
 }

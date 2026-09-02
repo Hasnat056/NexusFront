@@ -1,40 +1,6 @@
 import type { FacultyDesignation, FacultyProfileDetail } from "../types/api";
 import type { PersonFormShape } from "../types/dashboard";
-import { mockFacultyAllocations } from "./facultyAllocations";
-import { qualificationFormItemsToWire, qualificationsToFormItems } from "./qualificationForm";
-
-/**
- * Stand-in for GET /api/faculty/profile/ — the signed-in faculty member's own record. Same
- * person as data/facultyDashboard.ts's mockFacultyDashboardResponse.faculty (Marcus Webb,
- * NUM-FAC-2019-231) — kept in sync by hand, same tension already documented across this app's
- * other mock stores. courseallocation_set reuses mockFacultyAllocations directly.
- */
-export const mockFacultyProfile: FacultyProfileDetail = {
-  url: "http://localhost:8000/api/faculty/profile/",
-  person: {
-    user: { username: "m.webb@nexus.edu" },
-    image: null,
-    person_id: "NUM-FAC-2019-231",
-    first_name: "Marcus",
-    last_name: "Webb",
-    father_name: "Daniel Webb",
-    gender: "Male",
-    dob: "1985-03-14",
-    cnic: "35202-1234567-1",
-    institutional_email: "m.webb@nexus.edu",
-    personal_email: "marcus.webb@gmail.com",
-    contact_number: "+92-300-1234567",
-    religion: "Islam",
-    address: { country: "Pakistan", province: "Punjab", city: "Mianwali", zipcode: 42200, street_address: "12 Faculty Colony" },
-    qualification_set: [
-      { degree_title: "PhD Computer Science", education_board: null, passing_year: 2014, institution: "LUMS", total_marks: null, obtained_marks: null, is_current: false },
-    ],
-  },
-  department: "CS",
-  designation: "Associate Professor",
-  joining_date: "2019-08-01",
-  courseallocation_set: mockFacultyAllocations,
-};
+import { qualificationsToFormItems } from "./qualificationForm";
 
 /** FacultySerializer locks these person fields read_only when a Faculty member edits their own
  * record — same mechanism as ADMIN_LOCKED_PERSON_FIELDS in data/adminProfile.ts. */
@@ -83,24 +49,4 @@ export function facultyProfileFormValueFromRecord(record: FacultyProfileDetail):
     designation: record.designation,
     joining_date: record.joining_date,
   };
-}
-
-/** Stand-in for PUT /api/faculty/profile/ — only writes the fields FacultySerializer actually
- * leaves editable for Faculty's own profile; identity fields and department/designation/
- * joining_date are locked server-side and never sent even though PersonFormFields renders them
- * (read-only). */
-export function updateFacultyProfile(input: FacultyProfileFormValue): FacultyProfileDetail {
-  mockFacultyProfile.person.personal_email = input.personal_email || null;
-  mockFacultyProfile.person.contact_number = input.contact_number;
-  mockFacultyProfile.person.religion = input.religion || null;
-  mockFacultyProfile.person.image = input.image;
-  mockFacultyProfile.person.address = {
-    country: input.address.country,
-    province: input.address.province || null,
-    city: input.address.city,
-    zipcode: input.address.zipcode ? Number(input.address.zipcode) : null,
-    street_address: input.address.street_address || null,
-  };
-  mockFacultyProfile.person.qualification_set = qualificationFormItemsToWire(input.qualification_set);
-  return mockFacultyProfile;
 }

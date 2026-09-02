@@ -1,8 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import { useParams, useSearchParams } from "react-router-dom";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { DashboardShell } from "../components/layout/DashboardShell";
-import type { RailNavItem } from "../components/layout/Rail";
-import { IconCalendar, IconGrid, IconPerson, IconScroll, IconTerminal, IconUserCheck } from "../components/icons/Icons";
+import { STUDENT_RAIL_ITEMS } from "../components/layout/studentRailItems";
 import { Breadcrumbs } from "../components/ui/Breadcrumbs";
 import { Panel } from "../components/ui/Panel";
 import { StatTile } from "../components/ui/StatTile";
@@ -11,21 +10,13 @@ import { Tag } from "../components/ui/Tag";
 import { downloadSemesterResultPdf } from "../lib/pdf/semesterResultPdf";
 import { imageToDataUrl } from "../lib/pdf/imageToDataUrl";
 import type { StatusTone } from "../types/dashboard";
+import type { StudentDashboardResponse, StudentEnrollment, StudentTranscript } from "../types/api";
 import { selectCourseResults } from "../data/studentResults";
-import { mockStudentTranscript } from "../data/studentTranscript";
-import { mockStudentDashboardResponse } from "../data/studentDashboard";
+import { apiGet, apiGetAllPages } from "../lib/auth";
+import { ApiError, apiErrorMessage } from "../lib/api";
 import formStyles from "../components/ui/Form.module.css";
 import styles from "./PersonDetailPage.module.css";
 import pageStyles from "./StudentSemesterResultPage.module.css";
-
-const RAIL_ITEMS: RailNavItem[] = [
-  { id: "dashboard", label: "Dashboard", icon: IconGrid, href: "/student/dashboard" },
-  { id: "enrollments", label: "Enrollments", icon: IconUserCheck, href: "/student/enrollments" },
-  { id: "transcript", label: "Transcript", icon: IconScroll, href: "/student/transcript" },
-  { id: "attendance", label: "Attendance", icon: IconCalendar, href: "/student/attendance" },
-  { id: "profile", label: "Profile", icon: IconPerson, href: "/student/profile" },
-  { id: "scratchpad", label: "Scratchpad", icon: IconTerminal, href: "/student/scratchpad" },
-];
 
 function gpaTone(gpa: number): StatusTone {
   if (gpa >= 3.0) return "good";
@@ -38,6 +29,7 @@ function formatIssuedDate(): string {
 }
 
 export function StudentSemesterResultPage() {
+  const navigate = useNavigate();
   const { id } = useParams<{ id: string }>();
   const semesterId = id ? Number(id) : NaN;
   const [searchParams] = useSearchParams();
@@ -46,16 +38,42 @@ export function StudentSemesterResultPage() {
   const [downloading, setDownloading] = useState(false);
   const linkedCourseRef = useRef<HTMLDivElement>(null);
 
-  const dashboard = mockStudentDashboardResponse;
-  const avatarInitials = `${dashboard.first_name[0]}${dashboard.last_name[0]}`.toUpperCase();
-  const studentName = `${dashboard.first_name} ${dashboard.last_name}`;
+  const [dashboard, setDashboard] = useState<StudentDashboardResponse | null>(null);
+  const [transcripts, setTranscripts] = useState<StudentTranscript[] | null>(null);
+  const [enrollments, setEnrollments] = useState<StudentEnrollment[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
-  const semester = mockStudentTranscript().find((r) => r.semester === semesterId);
-  const courses = selectCourseResults().filter((c) => c.semesterId === semesterId);
+  useEffect(() => {
+    let cancelled = false;
+    Promise.all([
+      apiGet<StudentDashboardResponse>("/student/dashboard/"),
+      apiGetAllPages<StudentTranscript>("/student/transcripts/"),
+      apiGetAllPages<StudentEnrollment>("/student/enrollments/"),
+    ])
+      .then(([dashboardRes, transcriptsRes, enrollmentsRes]) => {
+        if (cancelled) return;
+        setDashboard(dashboardRes);
+        setTranscripts(transcriptsRes);
+        setEnrollments(enrollmentsRes);
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        if (err instanceof ApiError && err.status === 401) {
+          navigate("/login", { replace: true });
+          return;
+        }
+        setError(apiErrorMessage(err));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [navigate, semesterId]);
 
   useEffect(() => {
     linkedCourseRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
   }, []);
+
+  const avatarInitials = dashboard ? `${dashboard.first_name[0]}${dashboard.last_name[0]}`.toUpperCase() : "—";
 
   function toggleExpanded(enrollmentId: number) {
     setExpanded((prev) => {
@@ -66,23 +84,44 @@ export function StudentSemesterResultPage() {
     });
   }
 
+  if (error) {
+    return (
+      <DashboardShell railItems={STUDENT_RAIL_ITEMS} activeRailId="transcript" homeHref="/student/dashboard" profileHref="/student/profile" avatarInitials={avatarInitials} pageTitle="Semester result" subtitle="">
+        <div className={formStyles.errorBanner}>{error}</div>
+      </DashboardShell>
+    );
+  }
+
+  if (!dashboard || !transcripts || !enrollments) {
+    return (
+      <DashboardShell railItems={STUDENT_RAIL_ITEMS} activeRailId="transcript" homeHref="/student/dashboard" profileHref="/student/profile" avatarInitials={avatarInitials} pageTitle="Semester result" subtitle="">
+        <p className={styles.notFound}>Loading semester result…</p>
+      </DashboardShell>
+    );
+  }
+
+  const semester = transcripts.find((t) => t.semester === semesterId);
+  const courses = selectCourseResults(enrollments).filter((c) => c.semesterId === semesterId);
+  const session = enrollments.find((e) => e.allocation_details.semester_id === semesterId)?.allocation_details.session ?? `Semester ${semesterId}`;
+  const studentName = `${dashboard.first_name} ${dashboard.last_name}`;
+
   async function handleExport() {
     if (!semester) return;
     setDownloading(true);
     try {
-      const studentImageDataUrl = dashboard.image ? await imageToDataUrl(dashboard.image) : null;
+      const studentImageDataUrl = dashboard!.image ? await imageToDataUrl(dashboard!.image) : null;
       downloadSemesterResultPdf({
         studentName,
-        studentId: dashboard.student_id,
-        program: dashboard.program,
-        studentClass: dashboard.class,
+        studentId: dashboard!.student_id,
+        program: dashboard!.program,
+        studentClass: dashboard!.class,
         studentImageDataUrl,
         avatarInitials,
-        session: semester.session,
+        session,
         semesterId: semester.semester,
         courses,
         totalCredits: semester.total_credits,
-        semesterGpa: semester.semester_gpa,
+        semesterGpa: Number(semester.semester_gpa),
         issuedOn: formatIssuedDate(),
       });
     } finally {
@@ -93,9 +132,10 @@ export function StudentSemesterResultPage() {
   if (!semester) {
     return (
       <DashboardShell
-        railItems={RAIL_ITEMS}
+        railItems={STUDENT_RAIL_ITEMS}
         activeRailId="transcript"
         homeHref="/student/dashboard"
+        profileHref="/student/profile"
         avatarInitials={avatarInitials}
         pageTitle="Semester result"
         subtitle={dashboard.institutional_email}
@@ -107,25 +147,29 @@ export function StudentSemesterResultPage() {
             { label: id ?? "Not found" },
           ]}
         />
-        <p className={styles.notFound}>Semester {id} was not found.</p>
+        <p className={styles.notFound}>Semester {id} was not found — no result has been generated for it yet.</p>
       </DashboardShell>
     );
   }
 
+  const semesterGpa = Number(semester.semester_gpa);
+
   return (
     <DashboardShell
-      railItems={RAIL_ITEMS}
+      railItems={STUDENT_RAIL_ITEMS}
       activeRailId="transcript"
       homeHref="/student/dashboard"
+      profileHref="/student/profile"
       avatarInitials={avatarInitials}
-      pageTitle={`${semester.session} · Semester ${semester.semester}`}
-      subtitle={dashboard.institutional_email}
+      avatarSrc={dashboard.image}
+      pageTitle={`Semester ${semester.semester} Result`}
+      subtitle={`${session} · ${dashboard.institutional_email}`}
     >
       <Breadcrumbs
         items={[
           { label: "Dashboard", href: "/student/dashboard" },
           { label: "Transcript", href: "/student/transcript" },
-          { label: `${semester.session} · Semester ${semester.semester}` },
+          { label: `Semester ${semester.semester} Result` },
         ]}
       />
 
@@ -139,12 +183,12 @@ export function StudentSemesterResultPage() {
         }
       >
         <div className={pageStyles.overviewStats}>
-          <StatTile id="gpa" label="Semester GPA" value={semester.semester_gpa.toFixed(2)} />
+          <StatTile id="gpa" label="Semester GPA" value={semesterGpa.toFixed(2)} />
           <StatTile id="credits" label="Credits earned" value={String(semester.total_credits)} />
         </div>
       </Panel>
 
-      <Panel title="Courses" hint="Click a course to see its assessment details">
+      <Panel title="Courses" hint="Click a course to see its assessment marks">
         <div className={pageStyles.courseList}>
           {courses.map((c) => {
             const isOpen = expanded.has(c.enrollmentId);
@@ -162,8 +206,10 @@ export function StudentSemesterResultPage() {
                   </div>
                   <div className={pageStyles.courseStats}>
                     <span>{c.creditHours} credits</span>
-                    <span>{c.obtainedMarks.toFixed(2)} / 100</span>
-                    <Tag tone={gpaTone(c.courseGpa)}>{`GPA ${c.courseGpa.toFixed(2)}`}</Tag>
+                    <span>{c.obtainedMarks != null ? `${c.obtainedMarks.toFixed(2)} / 100` : "—"}</span>
+                    <Tag tone={c.courseGpa != null ? gpaTone(c.courseGpa) : "warning"}>
+                      {c.courseGpa != null ? `GPA ${c.courseGpa.toFixed(2)}` : "Pending"}
+                    </Tag>
                     <button type="button" className={formStyles.linkButton} onClick={() => toggleExpanded(c.enrollmentId)}>
                       {isOpen ? "Hide details" : "View details"}
                     </button>
@@ -183,10 +229,8 @@ export function StudentSemesterResultPage() {
                         ),
                       },
                       { key: "marks", header: "Marks", align: "right", render: (a) => `${a.obtained ?? "—"} / ${a.totalMarks}` },
-                      { key: "weightage", header: "Weightage", align: "right", render: (a) => `${a.weightage}%` },
-                      { key: "contribution", header: "Contributes", align: "right", render: (a) => `${a.contribution.toFixed(2)} pts` },
                     ]}
-                    rows={c.breakdown}
+                    rows={c.assessments}
                     rowKey={(a) => String(a.assessmentId)}
                   />
                 )}

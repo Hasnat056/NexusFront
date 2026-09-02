@@ -5,6 +5,7 @@ import styles from "./PieChart.module.css";
 interface PieChartProps {
   data: CategorySlice[];
   formatValue: (value: number) => string;
+  emptyMessage?: string;
 }
 
 const SIZE = 200;
@@ -47,11 +48,20 @@ function useFillProgress() {
   return progress;
 }
 
-export function PieChart({ data, formatValue }: PieChartProps) {
+export function PieChart({ data, formatValue, emptyMessage = "No data yet." }: PieChartProps) {
   const [active, setActive] = useState<string | null>(null);
   const progress = useFillProgress();
   const clipId = useId();
+
   const total = data.reduce((sum, d) => sum + d.value, 0);
+
+  if (data.length === 0 || total === 0) {
+    return (
+      <div className={styles.wrap}>
+        <div className={`${styles.chartFrame} ${styles.empty}`}>{emptyMessage}</div>
+      </div>
+    );
+  }
 
   let cumulative = 0;
   const slices = data.map((d) => {

@@ -8,6 +8,7 @@ interface DashboardShellProps {
   activeRailId: string;
   homeHref: string;
   avatarInitials: string;
+  avatarSrc?: string | null;
   pageTitle: string;
   sessionLabel?: string;
   subtitle: string;
@@ -22,6 +23,7 @@ export function DashboardShell({
   activeRailId,
   homeHref,
   avatarInitials,
+  avatarSrc,
   pageTitle,
   sessionLabel,
   subtitle,
@@ -32,13 +34,14 @@ export function DashboardShell({
 }: DashboardShellProps) {
   return (
     <div className={styles.app}>
-      <Rail items={railItems} activeId={activeRailId} avatarInitials={avatarInitials} homeHref={homeHref} />
+      <Rail items={railItems} activeId={activeRailId} homeHref={homeHref} />
       <div className={styles.main}>
         <TopBar
           title={pageTitle}
           sessionLabel={sessionLabel}
           subtitle={subtitle}
           avatarInitials={avatarInitials}
+          avatarSrc={avatarSrc}
           extraRight={topBarExtra}
           profileHref={profileHref}
         />

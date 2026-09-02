@@ -1,0 +1,238 @@
+.panel {
+  flex: 0 0 300px;
+  width: 300px;
+  border-left: 1px solid var(--color-border);
+  display: flex;
+  flex-direction: column;
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem 1.15rem;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.head h3 {
+  font-family: var(--font-display);
+  font-size: 0.98rem;
+  margin: 0;
+  font-weight: 700;
+}
+
+.count {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--color-on-accent);
+  background: var(--color-accent);
+  border-radius: 999px;
+  padding: 0.1rem 0.5rem;
+}
+
+.headExtra {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.markAllBtn {
+  background: none;
+  border: none;
+  color: var(--color-accent);
+  font-size: 0.72rem;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+  padding: 0;
+}
+
+.markAllBtn:hover {
+  text-decoration: underline;
+}
+
+.closeBtn {
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-muted);
+  border-radius: var(--radius-sm);
+  font-size: 15px;
+  line-height: 1;
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+.closeBtn:hover {
+  background: var(--color-surface-sunken);
+  color: var(--color-ink);
+}
+
+.reopenTab {
+  position: absolute;
+  top: 1.15rem;
+  right: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-right: none;
+  border-radius: var(--radius-md) 0 0 var(--radius-md);
+  padding: 0.5rem 0.7rem;
+  color: var(--color-muted);
+  font-size: 0.72rem;
+  font-weight: 600;
+  font-family: inherit;
+  box-shadow: -6px 0 12px -8px rgba(0, 0, 0, 0.18);
+  cursor: pointer;
+}
+
+.reopenTab:hover {
+  color: var(--color-ink);
+}
+
+.reopenTab svg {
+  width: 14px;
+  height: 14px;
+}
+
+.list {
+  flex: 1 1 auto;
+  overflow: auto;
+}
+
+.row {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.2rem;
+  max-height: 200px;
+  border-bottom: 1px solid var(--color-border);
+  overflow: hidden;
+  transition:
+    max-height 220ms ease,
+    opacity 220ms ease,
+    transform 220ms ease,
+    border-color 220ms ease;
+}
+
+.row:last-child {
+  border-bottom: none;
+}
+
+.row[data-leaving] {
+  max-height: 0;
+  opacity: 0;
+  transform: translateX(28px);
+  border-color: transparent;
+}
+
+.rowContent {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  padding: 0.85rem 0 0.85rem 1.15rem;
+  border: none;
+  background: none;
+  cursor: pointer;
+  text-align: left;
+  font-family: inherit;
+}
+
+.row:hover .rowContent {
+  background: var(--color-surface-sunken);
+}
+
+.dismissBtn {
+  flex: 0 0 auto;
+  align-self: flex-start;
+  width: 22px;
+  height: 22px;
+  margin: 0.7rem 0.7rem 0 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-muted);
+  border-radius: var(--radius-sm);
+  font-size: 15px;
+  line-height: 1;
+  background: none;
+  border: none;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 120ms ease, background-color 120ms ease, color 120ms ease;
+}
+
+.row:hover .dismissBtn,
+.dismissBtn:focus-visible {
+  opacity: 1;
+}
+
+.dismissBtn:hover {
+  background: var(--color-critical-soft);
+  color: var(--color-critical);
+}
+
+.dot {
+  flex: 0 0 auto;
+  width: 7px;
+  height: 7px;
+  margin-top: 0.35rem;
+  border-radius: 50%;
+  background: var(--color-accent);
+  opacity: 0;
+}
+
+.row[data-unread] .dot {
+  opacity: 1;
+}
+
+.rowBody {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  min-width: 0;
+}
+
+.message {
+  font-size: 0.82rem;
+  line-height: 1.4;
+  color: var(--color-muted);
+}
+
+.row[data-unread] .message {
+  color: var(--color-ink);
+  font-weight: 600;
+}
+
+.meta {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.actionRequired {
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: var(--color-critical);
+  background: var(--color-critical-soft);
+  border-radius: 999px;
+  padding: 0.1rem 0.5rem;
+}
+
+.time {
+  font-size: 0.72rem;
+  color: var(--color-muted);
+}
+
+.empty {
+  padding: 1.15rem;
+  font-size: 0.82rem;
+  color: var(--color-muted);
+}

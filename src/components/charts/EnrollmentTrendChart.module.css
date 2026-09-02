@@ -1,11 +1,22 @@
 .wrap {
   padding: 1.1rem 1.15rem 1.3rem;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
 }
 
 .chartFrame {
   position: relative;
   width: 100%;
   aspect-ratio: 640 / 194;
+}
+
+.empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-muted);
+  font-size: 0.86rem;
 }
 
 .svg {
