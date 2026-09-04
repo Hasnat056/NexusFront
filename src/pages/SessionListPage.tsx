@@ -5,6 +5,7 @@ import { HeatmapGrid, type HeatmapCell } from "../components/charts/HeatmapGrid"
 import { SessionTimelineChart, type TimelineSession } from "../components/charts/SessionTimelineChart";
 import { FilterBar } from "../components/ui/FilterBar";
 import { Panel } from "../components/ui/Panel";
+import { Select } from "../components/ui/Select";
 import { Table, type Column } from "../components/ui/Table";
 import { Tag } from "../components/ui/Tag";
 import { apiGetAllPages, apiMutate, cached, invalidateCache } from "../lib/auth";
@@ -276,13 +277,14 @@ export function SessionListPage() {
         <form className={listStyles.createRow} onSubmit={handleCreate}>
           <div className={formStyles.field} data-invalid={createFieldErrors.period ? "true" : undefined}>
             <label htmlFor="period">Period</label>
-            <select id="period" value={period} onChange={(e) => setPeriod(e.target.value as SessionPeriod)}>
-              {SESSION_PERIODS.map((p) => (
-                <option key={p} value={p}>
-                  {p}
-                </option>
-              ))}
-            </select>
+            <Select
+              id="period"
+              value={period}
+              onChange={(next) => setPeriod(next as SessionPeriod)}
+              placeholder="Select period…"
+              invalid={Boolean(createFieldErrors.period)}
+              options={SESSION_PERIODS.map((p) => ({ value: p, label: p }))}
+            />
             {createFieldErrors.period && <span className={formStyles.fieldError}>{createFieldErrors.period}</span>}
           </div>
           <div className={formStyles.field} data-invalid={createFieldErrors.year ? "true" : undefined}>

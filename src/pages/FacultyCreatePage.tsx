@@ -3,6 +3,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { useAdminPageConfig } from "../components/layout/AdminShellContext";
 import { Breadcrumbs } from "../components/ui/Breadcrumbs";
 import { PersonFormFields } from "../components/ui/PersonFormFields";
+import { Select } from "../components/ui/Select";
 import { apiGetAllPages, apiMutate, apiMutateForm, cached, invalidateCache } from "../lib/auth";
 import { ApiError, apiFormErrors, remapListFieldErrors, splitFieldErrors } from "../lib/api";
 import { nonBlankQualificationIndices } from "../data/qualificationForm";
@@ -135,33 +136,27 @@ export function FacultyCreatePage() {
         <div className={formStyles.row}>
           <div className={formStyles.field} data-invalid={facultyFieldErrors.department ? "true" : undefined}>
             <label htmlFor="department">Department</label>
-            <select
+            <Select
               id="department"
               value={value.department}
-              onChange={(e) => setValue({ ...value, department: e.target.value })}
+              onChange={(next) => setValue({ ...value, department: next })}
               disabled={departments.length === 0}
-            >
-              {departments.map((d) => (
-                <option key={d.department_id} value={d.department_id}>
-                  {d.department_name}
-                </option>
-              ))}
-            </select>
+              placeholder="Select a department…"
+              invalid={Boolean(facultyFieldErrors.department)}
+              options={departments.map((d) => ({ value: d.department_id, label: d.department_name }))}
+            />
             {facultyFieldErrors.department && <span className={formStyles.fieldError}>{facultyFieldErrors.department}</span>}
           </div>
           <div className={formStyles.field} data-invalid={facultyFieldErrors.designation ? "true" : undefined}>
             <label htmlFor="designation">Designation</label>
-            <select
+            <Select
               id="designation"
               value={value.designation}
-              onChange={(e) => setValue({ ...value, designation: e.target.value as FacultyDesignation })}
-            >
-              {DESIGNATIONS.map((d) => (
-                <option key={d} value={d}>
-                  {d}
-                </option>
-              ))}
-            </select>
+              onChange={(next) => setValue({ ...value, designation: next as FacultyDesignation })}
+              placeholder="Select designation…"
+              invalid={Boolean(facultyFieldErrors.designation)}
+              options={DESIGNATIONS.map((d) => ({ value: d, label: d }))}
+            />
             {facultyFieldErrors.designation && <span className={formStyles.fieldError}>{facultyFieldErrors.designation}</span>}
           </div>
           <div className={formStyles.field} data-invalid={facultyFieldErrors.joining_date ? "true" : undefined}>

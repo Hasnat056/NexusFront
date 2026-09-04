@@ -1,7 +1,14 @@
 import type { ChangeEvent } from "react";
 import { Avatar } from "./Avatar";
+import { Select } from "./Select";
 import type { PersonFormShape, QualificationFormItem } from "../../types/dashboard";
 import styles from "./Form.module.css";
+
+const GENDER_OPTIONS = [
+  { value: "Male", label: "Male" },
+  { value: "Female", label: "Female" },
+  { value: "Others", label: "Others" },
+];
 
 interface PersonFormFieldsProps<T extends PersonFormShape> {
   value: T;
@@ -132,11 +139,15 @@ export function PersonFormFields<T extends PersonFormShape>({
       <div className={styles.row}>
         <div className={styles.field} data-invalid={fieldErrors.gender ? "true" : undefined}>
           <label htmlFor="gender">Gender</label>
-          <select id="gender" value={value.gender} onChange={(e) => set("gender", e.target.value)} disabled={isLocked("gender")}>
-            <option value="Male">Male</option>
-            <option value="Female">Female</option>
-            <option value="Others">Others</option>
-          </select>
+          <Select
+            id="gender"
+            value={value.gender}
+            onChange={(next) => set("gender", next)}
+            placeholder="Select gender…"
+            disabled={isLocked("gender")}
+            invalid={Boolean(fieldErrors.gender)}
+            options={GENDER_OPTIONS}
+          />
           {fieldErrors.gender && <span className={styles.fieldError}>{fieldErrors.gender}</span>}
         </div>
         <div className={styles.field} data-invalid={fieldErrors.dob ? "true" : undefined}>

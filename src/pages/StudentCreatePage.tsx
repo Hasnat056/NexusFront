@@ -3,6 +3,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { useAdminPageConfig } from "../components/layout/AdminShellContext";
 import { Breadcrumbs } from "../components/ui/Breadcrumbs";
 import { PersonFormFields } from "../components/ui/PersonFormFields";
+import { Select } from "../components/ui/Select";
 import { STUDENT_STATUSES, emptyStudentFormValue } from "../data/studentDirectory";
 import { apiGetAllPages, apiMutate, apiMutateForm, cached, invalidateCache } from "../lib/auth";
 import { ApiError, apiFormErrors, remapListFieldErrors, splitFieldErrors } from "../lib/api";
@@ -153,53 +154,43 @@ export function StudentCreatePage() {
         <div className={formStyles.row}>
           <div className={formStyles.field} data-invalid={studentFieldErrors.program ? "true" : undefined}>
             <label htmlFor="program">Program</label>
-            <select
+            <Select
               id="program"
               value={value.program}
-              onChange={(e) => {
-                const program = e.target.value;
+              onChange={(program) => {
                 const firstClass = classes.find((c) => c.program === program);
                 setValue({ ...value, program, student_class: firstClass?.class_id ?? value.student_class });
               }}
               disabled={programs.length === 0}
-            >
-              {programs.map((p) => (
-                <option key={p.program_id} value={p.program_id}>
-                  {p.program_name}
-                </option>
-              ))}
-            </select>
+              placeholder="Select a program…"
+              invalid={Boolean(studentFieldErrors.program)}
+              options={programs.map((p) => ({ value: p.program_id, label: p.program_name }))}
+            />
             {studentFieldErrors.program && <span className={formStyles.fieldError}>{studentFieldErrors.program}</span>}
           </div>
           <div className={formStyles.field} data-invalid={studentFieldErrors.student_class ? "true" : undefined}>
             <label htmlFor="student_class">Class</label>
-            <select
+            <Select
               id="student_class"
-              value={value.student_class}
-              onChange={(e) => setValue({ ...value, student_class: Number(e.target.value) })}
+              value={String(value.student_class)}
+              onChange={(next) => setValue({ ...value, student_class: Number(next) })}
               disabled={classesForProgram.length === 0}
-            >
-              {classesForProgram.map((c) => (
-                <option key={c.class_id} value={c.class_id}>
-                  {classLabel(c)}
-                </option>
-              ))}
-            </select>
+              placeholder="Select a class…"
+              invalid={Boolean(studentFieldErrors.student_class)}
+              options={classesForProgram.map((c) => ({ value: String(c.class_id), label: classLabel(c) }))}
+            />
             {studentFieldErrors.student_class && <span className={formStyles.fieldError}>{studentFieldErrors.student_class}</span>}
           </div>
           <div className={formStyles.field} data-invalid={studentFieldErrors.status ? "true" : undefined}>
             <label htmlFor="status">Status</label>
-            <select
+            <Select
               id="status"
               value={value.status}
-              onChange={(e) => setValue({ ...value, status: e.target.value as StudentStatus })}
-            >
-              {STUDENT_STATUSES.map((s) => (
-                <option key={s} value={s}>
-                  {s}
-                </option>
-              ))}
-            </select>
+              onChange={(next) => setValue({ ...value, status: next as StudentStatus })}
+              placeholder="Select status…"
+              invalid={Boolean(studentFieldErrors.status)}
+              options={STUDENT_STATUSES.map((s) => ({ value: s, label: s }))}
+            />
             {studentFieldErrors.status && <span className={formStyles.fieldError}>{studentFieldErrors.status}</span>}
           </div>
           <div className={formStyles.field} data-invalid={studentFieldErrors.admission_date ? "true" : undefined}>

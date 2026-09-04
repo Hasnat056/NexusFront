@@ -25,11 +25,31 @@
   border-color: var(--color-accent);
 }
 
+.trigger:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  background: var(--color-surface-sunken);
+}
+
+.trigger:disabled:hover {
+  border-color: var(--color-border);
+}
+
 .trigger:focus-visible,
 .trigger[data-open="true"] {
   outline: none;
   border-color: var(--color-accent);
   box-shadow: 0 0 0 3px var(--color-accent-soft);
+}
+
+.trigger[data-invalid="true"] {
+  border-color: var(--color-critical);
+}
+
+.trigger[data-invalid="true"]:focus-visible,
+.trigger[data-invalid="true"][data-open="true"] {
+  border-color: var(--color-critical);
+  box-shadow: 0 0 0 3px var(--color-critical-soft);
 }
 
 .value {

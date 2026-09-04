@@ -3,7 +3,7 @@ import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { useAdminPageConfig } from "../components/layout/AdminShellContext";
 import { Breadcrumbs } from "../components/ui/Breadcrumbs";
 import { Panel } from "../components/ui/Panel";
-import { SearchableSelect } from "../components/ui/SearchableSelect";
+import { Select } from "../components/ui/Select";
 import { Tag } from "../components/ui/Tag";
 import { useToast } from "../components/ui/ToastContext";
 import { apiGet, apiGetAllPages, apiMutate, cached, invalidateCache } from "../lib/auth";
@@ -232,13 +232,17 @@ export function ClassDetailPage() {
           <div className={formStyles.row}>
             <div className={formStyles.field} data-invalid={fieldErrors.program ? "true" : undefined}>
               <label htmlFor="program">Program</label>
-              <select id="program" value={formValue.program} onChange={(e) => setFormValue({ ...formValue, program: e.target.value })}>
-                {programs.map((p) => (
-                  <option key={p.program_id} value={p.program_id}>
-                    {p.program_id} — {p.program_name}
-                  </option>
-                ))}
-              </select>
+              <Select
+                id="program"
+                value={formValue.program}
+                onChange={(next) => setFormValue({ ...formValue, program: next })}
+                placeholder="Select a program…"
+                invalid={Boolean(fieldErrors.program)}
+                options={programs.map((p) => ({
+                  value: p.program_id,
+                  label: `${p.program_id} — ${p.program_name}`,
+                }))}
+              />
               {fieldErrors.program && <span className={formStyles.fieldError}>{fieldErrors.program}</span>}
             </div>
             <div className={formStyles.field} data-invalid={fieldErrors.batch_year ? "true" : undefined}>
@@ -296,18 +300,16 @@ export function ClassDetailPage() {
                 <div className={formStyles.row}>
                   <div className={formStyles.field}>
                     <label htmlFor={`session_${edit.semester_id}`}>Session</label>
-                    <select
+                    <Select
                       id={`session_${edit.semester_id}`}
                       value={edit.session}
-                      onChange={(e) => setSemesterSession(edit.semester_id, e.target.value)}
-                    >
-                      <option value="">Unassigned</option>
-                      {sessions.map((s) => (
-                        <option key={s.id} value={s.id}>
-                          {sessionLabel(s.id)}
-                        </option>
-                      ))}
-                    </select>
+                      onChange={(next) => setSemesterSession(edit.semester_id, next)}
+                      placeholder="Unassigned"
+                      options={[
+                        { value: "", label: "Unassigned" },
+                        ...sessions.map((s) => ({ value: String(s.id), label: sessionLabel(s.id) })),
+                      ]}
+                    />
                   </div>
                 </div>
 
@@ -317,7 +319,7 @@ export function ClassDetailPage() {
                     <div className={styles.courseGrid}>
                       {edit.courses.map((code, courseIndex) => (
                         <div className={styles.courseItem} key={courseIndex}>
-                          <SearchableSelect
+                          <Select
                             ariaLabel={`Course ${courseIndex + 1} for semester ${edit.semester_no}`}
                             value={code}
                             onChange={(next) => setCourseRow(edit.semester_id, courseIndex, next)}

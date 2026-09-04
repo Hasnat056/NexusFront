@@ -4,6 +4,7 @@ import { DashboardShell } from "../components/layout/DashboardShell";
 import { STUDENT_RAIL_ITEMS } from "../components/layout/studentRailItems";
 import { Breadcrumbs } from "../components/ui/Breadcrumbs";
 import { Panel } from "../components/ui/Panel";
+import { Select } from "../components/ui/Select";
 import { StatTile } from "../components/ui/StatTile";
 import { Tag } from "../components/ui/Tag";
 import { AssessmentCard } from "../components/ui/AssessmentCard";
@@ -311,13 +312,13 @@ export function StudentEnrollmentDetailPage() {
         <form className={styles.panelBody} onSubmit={handleSaveReview}>
           <div className={formStyles.field}>
             <label htmlFor="rating">Rating</label>
-            <select id="rating" value={reviewRating} onChange={(e) => setReviewRating(Number(e.target.value))}>
-              {[5, 4, 3, 2, 1].map((n) => (
-                <option key={n} value={n}>
-                  {n} / 5
-                </option>
-              ))}
-            </select>
+            <Select
+              id="rating"
+              value={String(reviewRating)}
+              onChange={(next) => setReviewRating(Number(next))}
+              placeholder="Select rating…"
+              options={[5, 4, 3, 2, 1].map((n) => ({ value: String(n), label: `${n} / 5` }))}
+            />
           </div>
           <div className={formStyles.field}>
             <label htmlFor="review_text">Review</label>

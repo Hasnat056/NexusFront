@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAdminPageConfig } from "../components/layout/AdminShellContext";
 import { Breadcrumbs } from "../components/ui/Breadcrumbs";
+import { Select } from "../components/ui/Select";
 import { apiGetAllPages, apiMutate, cached, invalidateCache } from "../lib/auth";
 import { ApiError, apiFormErrors } from "../lib/api";
 import type { AdminCourse } from "../types/api";
@@ -122,18 +123,17 @@ export function CourseCreatePage() {
           </div>
           <div className={formStyles.field} data-invalid={fieldErrors.pre_requisite ? "true" : undefined}>
             <label htmlFor="pre_requisite">Prerequisite</label>
-            <select
+            <Select
               id="pre_requisite"
               value={value.pre_requisite}
-              onChange={(e) => setValue({ ...value, pre_requisite: e.target.value })}
-            >
-              <option value="">None</option>
-              {existingCourses.map((c) => (
-                <option key={c.course_code} value={c.course_code}>
-                  {c.course_code} — {c.course_name}
-                </option>
-              ))}
-            </select>
+              onChange={(next) => setValue({ ...value, pre_requisite: next })}
+              placeholder="None"
+              invalid={Boolean(fieldErrors.pre_requisite)}
+              options={[
+                { value: "", label: "None" },
+                ...existingCourses.map((c) => ({ value: c.course_code, label: `${c.course_code} — ${c.course_name}` })),
+              ]}
+            />
             {fieldErrors.pre_requisite && <span className={formStyles.fieldError}>{fieldErrors.pre_requisite}</span>}
           </div>
         </div>

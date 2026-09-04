@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { useAdminPageConfig } from "../components/layout/AdminShellContext";
 import { Breadcrumbs } from "../components/ui/Breadcrumbs";
+import { Select } from "../components/ui/Select";
 import { Tag } from "../components/ui/Tag";
 import { useToast } from "../components/ui/ToastContext";
 import { apiGet, apiGetAllPages, apiMutate, cached, invalidateCache } from "../lib/auth";
@@ -191,40 +192,41 @@ export function AllocationDetailPage() {
           <div className={formStyles.row}>
             <div className={formStyles.field} data-invalid={fieldErrors.faculty ? "true" : undefined}>
               <label htmlFor="faculty">Faculty</label>
-              <select id="faculty" value={formValue.faculty} onChange={(e) => setFormValue({ ...formValue, faculty: e.target.value })}>
-                {faculty.map((f) => (
-                  <option key={f.person.person_id} value={f.person.person_id}>
-                    {f.person.person_id} — {f.person.first_name} {f.person.last_name}
-                  </option>
-                ))}
-              </select>
+              <Select
+                id="faculty"
+                value={formValue.faculty}
+                onChange={(next) => setFormValue({ ...formValue, faculty: next })}
+                placeholder="Select faculty…"
+                invalid={Boolean(fieldErrors.faculty)}
+                options={faculty.map((f) => ({
+                  value: f.person.person_id,
+                  label: `${f.person.person_id} — ${f.person.first_name} ${f.person.last_name}`,
+                }))}
+              />
               {fieldErrors.faculty && <span className={formStyles.fieldError}>{fieldErrors.faculty}</span>}
             </div>
             <div className={formStyles.field} data-invalid={fieldErrors.semester ? "true" : undefined}>
               <label htmlFor="semester">Semester</label>
-              <select
+              <Select
                 id="semester"
                 value={formValue.semester}
-                onChange={(e) => setFormValue({ ...formValue, semester: e.target.value, course: "" })}
-              >
-                {semesterChoices.map((s) => (
-                  <option key={s.semesterId} value={s.semesterId}>
-                    {s.label}
-                  </option>
-                ))}
-              </select>
+                onChange={(next) => setFormValue({ ...formValue, semester: next, course: "" })}
+                placeholder="Select semester…"
+                invalid={Boolean(fieldErrors.semester)}
+                options={semesterChoices.map((s) => ({ value: String(s.semesterId), label: s.label }))}
+              />
               {fieldErrors.semester && <span className={formStyles.fieldError}>{fieldErrors.semester}</span>}
             </div>
             <div className={formStyles.field} data-invalid={fieldErrors.course ? "true" : undefined}>
               <label htmlFor="course">Course</label>
-              <select id="course" value={formValue.course} onChange={(e) => setFormValue({ ...formValue, course: e.target.value })}>
-                <option value="">Select course…</option>
-                {selectedSemester?.courseCodes.map((code) => (
-                  <option key={code} value={code}>
-                    {code}
-                  </option>
-                ))}
-              </select>
+              <Select
+                id="course"
+                value={formValue.course}
+                onChange={(next) => setFormValue({ ...formValue, course: next })}
+                placeholder="Select course…"
+                invalid={Boolean(fieldErrors.course)}
+                options={(selectedSemester?.courseCodes ?? []).map((code) => ({ value: code, label: code }))}
+              />
               {fieldErrors.course && <span className={formStyles.fieldError}>{fieldErrors.course}</span>}
             </div>
           </div>

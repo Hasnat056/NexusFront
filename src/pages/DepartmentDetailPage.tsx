@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { useAdminPageConfig } from "../components/layout/AdminShellContext";
 import { Breadcrumbs } from "../components/ui/Breadcrumbs";
 import { Panel } from "../components/ui/Panel";
+import { Select } from "../components/ui/Select";
 import { Tag } from "../components/ui/Tag";
 import { Table, type Column } from "../components/ui/Table";
 import { StatStrip } from "../components/ui/StatStrip";
@@ -217,19 +218,22 @@ export function DepartmentDetailPage() {
             )}
           </div>
           <form className={styles.hodEditRow} onSubmit={handleSubmitHodChange}>
-            <select
-              className={styles.hodSelect}
-              value={hod}
-              onChange={(e) => setHod(e.target.value)}
-              style={hodFieldError ? { borderColor: "var(--color-critical)" } : undefined}
-            >
-              <option value="">Unassigned</option>
-              {facultyOptions.map((f) => (
-                <option key={f.person.person_id} value={f.person.person_id}>
-                  {f.person.first_name} {f.person.last_name} — {f.person.person_id}
-                </option>
-              ))}
-            </select>
+            <div className={styles.hodSelect}>
+              <Select
+                ariaLabel="Head of department"
+                value={hod}
+                onChange={setHod}
+                placeholder="Unassigned"
+                invalid={Boolean(hodFieldError)}
+                options={[
+                  { value: "", label: "Unassigned" },
+                  ...facultyOptions.map((f) => ({
+                    value: f.person.person_id,
+                    label: `${f.person.first_name} ${f.person.last_name} — ${f.person.person_id}`,
+                  })),
+                ]}
+              />
+            </div>
             <button type="submit" className={formStyles.primaryButton}>
               Submit change
             </button>

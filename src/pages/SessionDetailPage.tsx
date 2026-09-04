@@ -3,6 +3,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import { useAdminPageConfig } from "../components/layout/AdminShellContext";
 import { Breadcrumbs } from "../components/ui/Breadcrumbs";
 import { Panel } from "../components/ui/Panel";
+import { Select } from "../components/ui/Select";
 import { Tag } from "../components/ui/Tag";
 import { useToast } from "../components/ui/ToastContext";
 import { apiGet, apiMutate, invalidateCache } from "../lib/auth";
@@ -254,18 +255,15 @@ export function SessionDetailPage() {
           <form className={formStyles.row} onSubmit={handleSetPeriod}>
             <div className={formStyles.field} data-invalid={fieldErrors.period ? "true" : undefined}>
               <label htmlFor="period">Period</label>
-              <select
+              <Select
                 id="period"
                 value={periodInput}
-                onChange={(e) => setPeriodInput(e.target.value as SessionPeriod)}
+                onChange={(next) => setPeriodInput(next as SessionPeriod)}
                 disabled={periodLocked}
-              >
-                {SESSION_PERIODS.map((p) => (
-                  <option key={p} value={p}>
-                    {p}
-                  </option>
-                ))}
-              </select>
+                placeholder="Select period…"
+                invalid={Boolean(fieldErrors.period)}
+                options={SESSION_PERIODS.map((p) => ({ value: p, label: p }))}
+              />
               {fieldErrors.period && <span className={formStyles.fieldError}>{fieldErrors.period}</span>}
             </div>
             <div className={formStyles.field}>

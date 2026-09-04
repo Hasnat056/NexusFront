@@ -38,20 +38,7 @@
 }
 
 .hodSelect {
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  padding: 0.6rem 0.75rem;
-  font-size: 0.86rem;
-  font-family: inherit;
-  color: var(--color-ink);
-  background: var(--color-surface);
   min-width: 240px;
-}
-
-.hodSelect:focus-visible {
-  outline: none;
-  border-color: var(--color-accent);
-  box-shadow: 0 0 0 3px var(--color-accent-soft);
 }
 
 .pillReview {

@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { Link } from "react-router-dom";
+import { Select } from "./Select";
 import styles from "./FilterBar.module.css";
 
 export interface FilterSelect {
@@ -50,19 +51,15 @@ export function FilterBar({
         onChange={(e) => onSearchChange(e.target.value)}
       />
       {selects.map((select) => (
-        <select
-          key={select.id}
-          className={styles.select}
-          value={select.value}
-          onChange={(e) => select.onChange(e.target.value)}
-        >
-          <option value="">{select.placeholder}</option>
-          {select.options.map((opt) => (
-            <option key={opt.value} value={opt.value}>
-              {opt.label}
-            </option>
-          ))}
-        </select>
+        <div className={styles.selectWrap} key={select.id}>
+          <Select
+            id={select.id}
+            value={select.value}
+            onChange={select.onChange}
+            placeholder={select.placeholder}
+            options={[{ value: "", label: select.placeholder }, ...select.options]}
+          />
+        </div>
       ))}
       {children}
       <div className={styles.spacer} />

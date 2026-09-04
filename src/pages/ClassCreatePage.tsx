@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAdminPageConfig } from "../components/layout/AdminShellContext";
 import { Breadcrumbs } from "../components/ui/Breadcrumbs";
+import { Select } from "../components/ui/Select";
 import { apiGetAllPages, apiMutate, cached, invalidateCache } from "../lib/auth";
 import { ApiError, apiFormErrors } from "../lib/api";
 import type { AdminClass, AdminProgram } from "../types/api";
@@ -73,13 +74,14 @@ export function ClassCreatePage() {
         <div className={formStyles.row}>
           <div className={formStyles.field} data-invalid={fieldErrors.program ? "true" : undefined}>
             <label htmlFor="program">Program</label>
-            <select id="program" value={value.program} onChange={(e) => setValue({ ...value, program: e.target.value })}>
-              {programs.map((p) => (
-                <option key={p.program_id} value={p.program_id}>
-                  {p.program_id} — {p.program_name}
-                </option>
-              ))}
-            </select>
+            <Select
+              id="program"
+              value={value.program}
+              onChange={(next) => setValue({ ...value, program: next })}
+              placeholder="Select a program…"
+              invalid={Boolean(fieldErrors.program)}
+              options={programs.map((p) => ({ value: p.program_id, label: `${p.program_id} — ${p.program_name}` }))}
+            />
             {fieldErrors.program && <span className={formStyles.fieldError}>{fieldErrors.program}</span>}
           </div>
           <div className={formStyles.field} data-invalid={fieldErrors.batch_year ? "true" : undefined}>

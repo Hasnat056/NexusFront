@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { IconCheck, IconChevronDown, IconSearch } from "../icons/Icons";
-import styles from "./SearchableSelect.module.css";
+import styles from "./Select.module.css";
 
-export interface SearchableSelectOption {
+export interface SelectOption {
   value: string;
   label: string;
   sublabel?: string;
@@ -12,32 +12,52 @@ export interface SearchableSelectOption {
   triggerLabel?: string;
 }
 
-interface SearchableSelectProps {
+interface SelectProps {
+  id?: string;
   value: string;
   onChange: (value: string) => void;
-  options: SearchableSelectOption[];
+  options: SelectOption[];
   placeholder: string;
-  searchPlaceholder?: string;
   ariaLabel?: string;
+  disabled?: boolean;
+  /** Mirrors the native `<select>`'s participation in the app's `.field[data-invalid="true"]`
+   * error-border convention (Form.module.css) — that rule targets `select`, which this component's
+   * `<button>` trigger doesn't match, so callers pass this explicitly instead. */
+  invalid?: boolean;
+  searchPlaceholder?: string;
   noResultsLabel?: (query: string) => string;
+  /** Shows the search box only once there are more than this many options — below that, scanning
+   * beats typing. Matches this app's standard dropdown threshold; only override for a page-specific
+   * reason. */
+  searchThreshold?: number;
 }
 
-/** Combobox for long option lists (courses, faculty, students) — a drop-in swap for a plain
- * `<select>` when the option count makes scanning without search impractical. Filters on
- * label + sublabel together (e.g. course code + name) so either one can be searched. */
-export function SearchableSelect({
+const DEFAULT_SEARCH_THRESHOLD = 10;
+
+/**
+ * The app's one styled dropdown, a drop-in swap for a plain `<select>`. Search is shown or hidden
+ * automatically based on option count (searchThreshold, default 10) rather than being something
+ * each call site decides — that way a list that grows past the threshold over time (more faculty,
+ * more courses) gets search without anyone having to notice and switch components.
+ */
+export function Select({
+  id,
   value,
   onChange,
   options,
   placeholder,
-  searchPlaceholder = "Search…",
   ariaLabel,
+  disabled = false,
+  invalid = false,
+  searchPlaceholder = "Search…",
   noResultsLabel = (query) => `No results for "${query}"`,
-}: SearchableSelectProps) {
+  searchThreshold = DEFAULT_SEARCH_THRESHOLD,
+}: SelectProps) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const rootRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
+  const searchable = options.length > searchThreshold;
 
   useEffect(() => {
     if (!open) return;
@@ -58,25 +78,28 @@ export function SearchableSelect({
   }, [open]);
 
   useEffect(() => {
-    if (open) {
+    if (open && searchable) {
       setQuery("");
       searchRef.current?.focus();
     }
-  }, [open]);
+  }, [open, searchable]);
 
   const selected = options.find((o) => o.value === value) ?? null;
   const q = query.trim().toLowerCase();
-  const filtered = q ? options.filter((o) => `${o.label} ${o.sublabel ?? ""}`.toLowerCase().includes(q)) : options;
+  const filtered = searchable && q ? options.filter((o) => `${o.label} ${o.sublabel ?? ""}`.toLowerCase().includes(q)) : options;
 
   return (
     <div className={styles.field} ref={rootRef}>
       <button
+        id={id}
         type="button"
         className={styles.trigger}
         data-open={open ? "true" : "false"}
+        data-invalid={invalid ? "true" : "false"}
         aria-label={ariaLabel}
         aria-haspopup="listbox"
         aria-expanded={open}
+        disabled={disabled}
         onClick={() => setOpen((o) => !o)}
       >
         <span className={selected ? styles.value : styles.placeholder}>
@@ -86,17 +109,19 @@ export function SearchableSelect({
       </button>
       {open && (
         <div className={styles.panel} role="listbox">
-          <div className={styles.searchWrap}>
-            <IconSearch className={styles.searchIcon} />
-            <input
-              ref={searchRef}
-              type="text"
-              className={styles.searchInput}
-              placeholder={searchPlaceholder}
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-            />
-          </div>
+          {searchable && (
+            <div className={styles.searchWrap}>
+              <IconSearch className={styles.searchIcon} />
+              <input
+                ref={searchRef}
+                type="text"
+                className={styles.searchInput}
+                placeholder={searchPlaceholder}
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+              />
+            </div>
+          )}
           <div className={styles.list}>
             {filtered.length > 0 ? (
               filtered.map((o) => (

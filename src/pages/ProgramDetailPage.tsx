@@ -3,6 +3,7 @@ import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { useAdminPageConfig } from "../components/layout/AdminShellContext";
 import { Breadcrumbs } from "../components/ui/Breadcrumbs";
 import { Panel } from "../components/ui/Panel";
+import { Select } from "../components/ui/Select";
 import { useToast } from "../components/ui/ToastContext";
 import { apiGet, apiGetAllPages, apiMutate, cached, invalidateCache } from "../lib/auth";
 import { ApiError, apiErrorMessage, apiFormErrors } from "../lib/api";
@@ -189,17 +190,14 @@ export function ProgramDetailPage() {
             </div>
             <div className={formStyles.field} data-invalid={fieldErrors.department ? "true" : undefined}>
               <label htmlFor="department">Department</label>
-              <select
+              <Select
                 id="department"
                 value={formValue.department}
-                onChange={(e) => setFormValue({ ...formValue, department: e.target.value })}
-              >
-                {departments.map((d) => (
-                  <option key={d.department_id} value={d.department_id}>
-                    {d.department_name}
-                  </option>
-                ))}
-              </select>
+                onChange={(next) => setFormValue({ ...formValue, department: next })}
+                placeholder="Select a department…"
+                invalid={Boolean(fieldErrors.department)}
+                options={departments.map((d) => ({ value: d.department_id, label: d.department_name }))}
+              />
               {fieldErrors.department && <span className={formStyles.fieldError}>{fieldErrors.department}</span>}
             </div>
           </div>

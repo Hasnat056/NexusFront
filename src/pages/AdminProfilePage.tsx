@@ -3,6 +3,7 @@ import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useAdminPageConfig } from "../components/layout/AdminShellContext";
 import { Breadcrumbs } from "../components/ui/Breadcrumbs";
 import { Panel } from "../components/ui/Panel";
+import { Select } from "../components/ui/Select";
 import { Tag } from "../components/ui/Tag";
 import { PersonFormFields } from "../components/ui/PersonFormFields";
 import { useToast } from "../components/ui/ToastContext";
@@ -182,17 +183,16 @@ export function AdminProfilePage() {
           <div className={formStyles.row}>
             <div className={formStyles.field} data-invalid={adminFieldErrors.marital_status ? "true" : undefined}>
               <label htmlFor="marital_status">Marital status</label>
-              <select
+              <Select
                 id="marital_status"
                 value={formValue.marital_status}
-                onChange={(e) => setFormValue({ ...formValue, marital_status: e.target.value as AdminProfileFormValue["marital_status"] })}
-              >
-                {MARITAL_STATUSES.map((m) => (
-                  <option key={m} value={m}>
-                    {m}
-                  </option>
-                ))}
-              </select>
+                onChange={(next) =>
+                  setFormValue({ ...formValue, marital_status: next as AdminProfileFormValue["marital_status"] })
+                }
+                placeholder="Select status…"
+                invalid={Boolean(adminFieldErrors.marital_status)}
+                options={MARITAL_STATUSES.map((m) => ({ value: m, label: m }))}
+              />
               {adminFieldErrors.marital_status && <span className={formStyles.fieldError}>{adminFieldErrors.marital_status}</span>}
             </div>
             <div className={formStyles.field} data-invalid={adminFieldErrors.office_location ? "true" : undefined}>

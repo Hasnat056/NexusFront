@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { useAdminPageConfig } from "../components/layout/AdminShellContext";
 import { Breadcrumbs } from "../components/ui/Breadcrumbs";
 import { Panel } from "../components/ui/Panel";
+import { Select } from "../components/ui/Select";
 import { Tag } from "../components/ui/Tag";
 import { useToast } from "../components/ui/ToastContext";
 import { apiGet, apiGetAllPages, apiMutate, cached, invalidateCache } from "../lib/auth";
@@ -273,14 +274,18 @@ export function SemesterDetailPage() {
           <div className={formStyles.row}>
             <div className={formStyles.field} data-invalid={fieldErrors.session ? "true" : undefined}>
               <label htmlFor="session">Session</label>
-              <select id="session" value={sessionInput} onChange={(e) => setSessionInput(e.target.value)} disabled={sessionLocked}>
-                <option value="">Unassigned</option>
-                {sessions.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.period} {s.year}
-                  </option>
-                ))}
-              </select>
+              <Select
+                id="session"
+                value={sessionInput}
+                onChange={setSessionInput}
+                disabled={sessionLocked}
+                placeholder="Unassigned"
+                invalid={Boolean(fieldErrors.session)}
+                options={[
+                  { value: "", label: "Unassigned" },
+                  ...sessions.map((s) => ({ value: String(s.id), label: `${s.period} ${s.year}` })),
+                ]}
+              />
               {fieldErrors.session && <span className={formStyles.fieldError}>{fieldErrors.session}</span>}
             </div>
             <div className={formStyles.field}>

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { useAdminPageConfig } from "../components/layout/AdminShellContext";
 import { Breadcrumbs } from "../components/ui/Breadcrumbs";
+import { Select } from "../components/ui/Select";
 import { Tag } from "../components/ui/Tag";
 import { useToast } from "../components/ui/ToastContext";
 import { apiGet, apiMutate, invalidateCache } from "../lib/auth";
@@ -161,13 +162,14 @@ export function EnrollmentDetailPage() {
           <div className={formStyles.row}>
             <div className={formStyles.field} data-invalid={fieldErrors.status ? "true" : undefined}>
               <label htmlFor="status">Status</label>
-              <select id="status" value={status} onChange={(e) => setStatus(e.target.value as EnrollmentStatus)}>
-                {STATUS_OPTIONS.map((s) => (
-                  <option key={s} value={s}>
-                    {s}
-                  </option>
-                ))}
-              </select>
+              <Select
+                id="status"
+                value={status}
+                onChange={(next) => setStatus(next as EnrollmentStatus)}
+                placeholder="Select status…"
+                invalid={Boolean(fieldErrors.status)}
+                options={STATUS_OPTIONS.map((s) => ({ value: s, label: s }))}
+              />
               {fieldErrors.status && <span className={formStyles.fieldError}>{fieldErrors.status}</span>}
             </div>
           </div>

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAdminPageConfig } from "../components/layout/AdminShellContext";
 import { Breadcrumbs } from "../components/ui/Breadcrumbs";
+import { Select } from "../components/ui/Select";
 import { apiGetAllPages, apiMutate, cached, invalidateCache } from "../lib/auth";
 import { ApiError, apiFormErrors } from "../lib/api";
 import type { AdminCourseAllocationSummary, AdminEnrollmentSummary, AdminStudentListItem } from "../types/api";
@@ -92,31 +93,32 @@ export function EnrollmentCreatePage() {
             <div className={formStyles.row}>
               <div className={formStyles.field} data-invalid={fieldErrors.student ? "true" : undefined}>
                 <label htmlFor="student">Student</label>
-                <select id="student" value={value.student} onChange={(e) => setValue({ ...value, student: e.target.value })} required>
-                  <option value="">Select student…</option>
-                  {students.map((s) => (
-                    <option key={s.person.person_id} value={s.person.person_id}>
-                      {s.person.person_id} — {s.person.first_name} {s.person.last_name}
-                    </option>
-                  ))}
-                </select>
+                <Select
+                  id="student"
+                  value={value.student}
+                  onChange={(next) => setValue({ ...value, student: next })}
+                  placeholder="Select student…"
+                  invalid={Boolean(fieldErrors.student)}
+                  options={students.map((s) => ({
+                    value: s.person.person_id,
+                    label: `${s.person.person_id} — ${s.person.first_name} ${s.person.last_name}`,
+                  }))}
+                />
                 {fieldErrors.student && <span className={formStyles.fieldError}>{fieldErrors.student}</span>}
               </div>
               <div className={formStyles.field} data-invalid={fieldErrors.allocation ? "true" : undefined}>
                 <label htmlFor="allocation">Allocation</label>
-                <select
+                <Select
                   id="allocation"
                   value={value.allocation}
-                  onChange={(e) => setValue({ ...value, allocation: e.target.value })}
-                  required
-                >
-                  <option value="">Select allocation…</option>
-                  {allocations.map((a) => (
-                    <option key={a.allocation_id} value={a.allocation_id}>
-                      {a.course} · {a.faculty} · Semester #{a.semester} · {a.session}
-                    </option>
-                  ))}
-                </select>
+                  onChange={(next) => setValue({ ...value, allocation: next })}
+                  placeholder="Select allocation…"
+                  invalid={Boolean(fieldErrors.allocation)}
+                  options={allocations.map((a) => ({
+                    value: String(a.allocation_id),
+                    label: `${a.course} · ${a.faculty} · Semester #${a.semester} · ${a.session}`,
+                  }))}
+                />
                 {fieldErrors.allocation && <span className={formStyles.fieldError}>{fieldErrors.allocation}</span>}
               </div>
             </div>

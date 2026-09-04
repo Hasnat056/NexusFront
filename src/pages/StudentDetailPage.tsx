@@ -3,6 +3,7 @@ import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { useAdminPageConfig } from "../components/layout/AdminShellContext";
 import { Breadcrumbs } from "../components/ui/Breadcrumbs";
 import { Panel } from "../components/ui/Panel";
+import { Select } from "../components/ui/Select";
 import { Table, type Column } from "../components/ui/Table";
 import { Tag } from "../components/ui/Tag";
 import { PersonFormFields } from "../components/ui/PersonFormFields";
@@ -248,51 +249,41 @@ export function StudentDetailPage() {
           <div className={formStyles.row}>
             <div className={formStyles.field} data-invalid={studentFieldErrors.program ? "true" : undefined}>
               <label htmlFor="program">Program</label>
-              <select
+              <Select
                 id="program"
                 value={formValue.program}
-                onChange={(e) => {
-                  const program = e.target.value;
+                onChange={(program) => {
                   const firstClass = classes.find((c) => c.program === program);
                   setFormValue({ ...formValue, program, student_class: firstClass?.class_id ?? formValue.student_class });
                 }}
-              >
-                {programs.map((p) => (
-                  <option key={p.program_id} value={p.program_id}>
-                    {p.program_name}
-                  </option>
-                ))}
-              </select>
+                placeholder="Select a program…"
+                invalid={Boolean(studentFieldErrors.program)}
+                options={programs.map((p) => ({ value: p.program_id, label: p.program_name }))}
+              />
               {studentFieldErrors.program && <span className={formStyles.fieldError}>{studentFieldErrors.program}</span>}
             </div>
             <div className={formStyles.field} data-invalid={studentFieldErrors.student_class ? "true" : undefined}>
               <label htmlFor="student_class">Class</label>
-              <select
+              <Select
                 id="student_class"
-                value={formValue.student_class}
-                onChange={(e) => setFormValue({ ...formValue, student_class: Number(e.target.value) })}
-              >
-                {classesForProgram.map((c) => (
-                  <option key={c.class_id} value={c.class_id}>
-                    {classLabel(c)}
-                  </option>
-                ))}
-              </select>
+                value={String(formValue.student_class)}
+                onChange={(next) => setFormValue({ ...formValue, student_class: Number(next) })}
+                placeholder="Select a class…"
+                invalid={Boolean(studentFieldErrors.student_class)}
+                options={classesForProgram.map((c) => ({ value: String(c.class_id), label: classLabel(c) }))}
+              />
               {studentFieldErrors.student_class && <span className={formStyles.fieldError}>{studentFieldErrors.student_class}</span>}
             </div>
             <div className={formStyles.field} data-invalid={studentFieldErrors.status ? "true" : undefined}>
               <label htmlFor="status">Status</label>
-              <select
+              <Select
                 id="status"
                 value={formValue.status}
-                onChange={(e) => setFormValue({ ...formValue, status: e.target.value as StudentFormValue["status"] })}
-              >
-                {STUDENT_STATUSES.map((s) => (
-                  <option key={s} value={s}>
-                    {s}
-                  </option>
-                ))}
-              </select>
+                onChange={(next) => setFormValue({ ...formValue, status: next as StudentFormValue["status"] })}
+                placeholder="Select status…"
+                invalid={Boolean(studentFieldErrors.status)}
+                options={STUDENT_STATUSES.map((s) => ({ value: s, label: s }))}
+              />
               {studentFieldErrors.status && <span className={formStyles.fieldError}>{studentFieldErrors.status}</span>}
             </div>
           </div>
