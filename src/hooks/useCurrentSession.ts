@@ -5,27 +5,26 @@ import type { CurrentAcademicSession } from "../types/api";
 /**
  * GET /api/sessions/current/ is public/AllowAny (no token needed — works pre-login on LoginPage
  * too) and identical no matter which page or role asks, so it's cached() like the other small
- * reference lists. Returns the display label for the highest-priority live session (backend
- * already orders Active > Available > Initiated, so `[0]` is the one to show), or null while
- * loading, on error, or when no session is currently live at all.
+ * reference lists. The endpoint returns a single session object or `null` (at most one session is
+ * ever live at a time — see CurrentAcademicSession's doc comment). Returns the display label for
+ * that session, or null while loading, on error, or when no session is currently live at all.
  */
 export function useCurrentSessionLabel(): string | null {
-  const [sessions, setSessions] = useState<CurrentAcademicSession[] | null>(null);
+  const [session, setSession] = useState<CurrentAcademicSession | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    cached("session:current", () => apiGet<CurrentAcademicSession[]>("/sessions/current/"))
+    cached("session:current", () => apiGet<CurrentAcademicSession | null>("/sessions/current/"))
       .then((res) => {
-        if (!cancelled) setSessions(res);
+        if (!cancelled) setSession(res);
       })
       .catch(() => {
-        if (!cancelled) setSessions([]);
+        if (!cancelled) setSession(null);
       });
     return () => {
       cancelled = true;
     };
   }, []);
 
-  const current = sessions?.[0];
-  return current ? `${current.period} ${current.year}` : null;
+  return session ? `${session.period} ${session.year}` : null;
 }

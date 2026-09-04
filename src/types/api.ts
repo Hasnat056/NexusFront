@@ -908,10 +908,11 @@ export interface AdminSemester {
 export type CurrentAcademicSessionStatus = "Initiated" | "Available" | "Active";
 
 /**
- * GET /api/sessions/current/ (CurrentSessionView) — public/AllowAny, unauthenticated, no
- * pagination. Every AcademicSession currently Initiated/Available/Active (Inactive/Completed
- * excluded), ordered Active > Available > Initiated server-side, so `[0]` is "the" session to
- * show as a pill when more than one happens to be live at once. availability_deadline is a
+ * GET /api/sessions/current/ (CurrentSessionView) — public/AllowAny, unauthenticated. Returns a
+ * single object, not a list: at most one AcademicSession can be Initiated/Available/Active at a
+ * time (enforced in SessionSerializer.update), so there's never more than one to pick between.
+ * The response body is `CurrentAcademicSession | null` — `null` (still a 200) is the normal,
+ * expected shape whenever no session is currently live, not an error. availability_deadline is a
  * computed property (activation_deadline + availability_delta days), not a stored column.
  */
 export interface CurrentAcademicSession {

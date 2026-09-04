@@ -10,6 +10,17 @@ body,
   height: 100%;
 }
 
+/* Always reserves the vertical scrollbar's width, instead of the browser default of only
+   showing it once content overflows. Without this, any page whose content height crosses the
+   viewport height (e.g. the Scratchpad's output panel appearing after Run) causes the whole
+   page to shift sideways by the scrollbar's width the instant the scrollbar appears/disappears.
+   (scrollbar-gutter: stable would be the more modern way to do this, but it doesn't reserve
+   space for the viewport's own propagated scrollbar in this browser — verified live — so this
+   uses the older, universally-supported always-on-scrollbar approach instead.) */
+html {
+  overflow-y: scroll;
+}
+
 body {
   margin: 0;
   font-family: var(--font-body);

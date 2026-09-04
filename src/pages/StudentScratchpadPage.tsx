@@ -252,9 +252,9 @@ export function StudentScratchpadPage() {
     setError(null);
   }
 
-  function handleFilesChosen(files: FileList | null) {
-    if (!files || files.length === 0) return;
-    setUploadFiles((prev) => [...prev, ...Array.from(files)]);
+  function handleFilesChosen(files: File[]) {
+    if (files.length === 0) return;
+    setUploadFiles((prev) => [...prev, ...files]);
     setResult(null);
     setError(null);
   }
@@ -363,7 +363,7 @@ export function StudentScratchpadPage() {
               ))}
             </div>
             <button type="button" className={formStyles.primaryButton} onClick={handleRun} disabled={running || !canRun}>
-              {running ? "Running…" : "Run"}
+              Run
             </button>
           </div>
         }
@@ -393,7 +393,13 @@ export function StudentScratchpadPage() {
               accept={`${active.ext},.zip`}
               className={styles.fileInput}
               onChange={(e) => {
-                handleFilesChosen(e.target.files);
+                // e.target.files is a live FileList tied to the input element — it must be
+                // snapshotted into a plain array here, synchronously, before the reset below.
+                // setUploadFiles's updater runs later (React batches state updates), so passing
+                // the live FileList through would have it read back empty after the input is
+                // cleared, since both point at the same underlying selection.
+                const files = e.target.files ? Array.from(e.target.files) : [];
+                handleFilesChosen(files);
                 e.target.value = "";
               }}
             />
