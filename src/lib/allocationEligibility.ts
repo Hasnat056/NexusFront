@@ -21,10 +21,11 @@ function courseCodesForSemester(semesterId: number, classes: AdminClass[]): stri
 }
 
 /** Client-side approximation of CourseAllocationSerializer.get_fields()'s writable `semester`
- * queryset: status=='Inactive', session assigned and that session's own status=='Initiated', and
- * the semester's own activation_deadline is set. This only shapes which options show up in the
- * dropdown — the backend re-validates on submit regardless, so drift here is a UX rough edge at
- * worst, not a correctness gap. */
+ * queryset: status=='Inactive' and session assigned to a session that's itself 'Initiated'.
+ * Semesters no longer carry their own activation deadline — that lives on the session and
+ * cascades down. This only shapes which options show up in the dropdown — the backend
+ * re-validates on submit regardless, so drift here is a UX rough edge at worst, not a
+ * correctness gap. */
 export function eligibleSemestersForAllocation(
   semesters: AdminSemester[],
   sessions: AdminSession[],
@@ -32,7 +33,7 @@ export function eligibleSemestersForAllocation(
 ): SemesterChoice[] {
   return semesters
     .filter((s) => {
-      if (s.status !== "Inactive" || s.session === null || s.activation_deadline === null) return false;
+      if (s.status !== "Inactive" || s.session === null) return false;
       return sessions.find((session) => session.id === s.session)?.status === "Initiated";
     })
     .map((s) => ({

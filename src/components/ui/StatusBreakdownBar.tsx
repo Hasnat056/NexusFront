@@ -9,6 +9,8 @@ const TONE_VAR: Record<StatBreakdownSegment["tone"], string> = {
   good: "var(--color-good)",
   warning: "var(--color-warning)",
   critical: "var(--color-critical)",
+  info: "var(--color-info)",
+  neutral: "var(--color-neutral)",
   flat: "var(--color-muted)",
 };
 

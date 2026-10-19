@@ -24,7 +24,7 @@ export function AttendanceDots({ attendance, max }: AttendanceDotsProps) {
           key={d.lecture}
           className={styles.dot}
           data-present={d.is_present}
-          title={`Lecture ${d.lecture} — ${formatDate(d.attendance_date)} — ${d.is_present ? "Present" : "Absent"}`}
+          title={`Lecture ${d.lecture}, ${formatDate(d.attendance_date)}, ${d.is_present ? "Present" : "Absent"}`}
         />
       ))}
       {hidden > 0 && <span className={styles.more}>+{hidden} more</span>}

@@ -11,13 +11,14 @@ import { Tag } from "../components/ui/Tag";
 import { ResultsDistributionChart } from "../components/charts/ResultsDistributionChart";
 import type { StatusTone } from "../types/dashboard";
 import type { Assessment, EnrollmentStatus, FacultyAllocationDetail, FacultyDashboardResponse } from "../types/api";
-import { apiGet } from "../lib/auth";
-import { ApiError, apiErrorMessage } from "../lib/api";
+import { apiGet, apiMutate } from "../lib/auth";
+import { ApiError, apiErrorMessage, apiFormErrors } from "../lib/api";
 import formStyles from "../components/ui/Form.module.css";
 import styles from "./PersonDetailPage.module.css";
 
 const ALLOCATION_STATUS_TONE: Record<string, StatusTone> = {
-  Ongoing: "good",
+  Active: "good",
+  Locked: "warning",
   Completed: "good",
   Inactive: "warning",
   Cancelled: "critical",
@@ -25,6 +26,7 @@ const ALLOCATION_STATUS_TONE: Record<string, StatusTone> = {
 
 const ENROLLMENT_STATUS_TONE: Record<EnrollmentStatus, StatusTone> = {
   Active: "good",
+  Locked: "warning",
   Completed: "good",
   Inactive: "warning",
   Dropped: "critical",
@@ -42,6 +44,9 @@ export function FacultyAllocationDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [requesting, setRequesting] = useState(false);
+  const [thresholdInput, setThresholdInput] = useState("50");
+  const [thresholdError, setThresholdError] = useState<string | null>(null);
+  const [savingThreshold, setSavingThreshold] = useState(false);
   // AssessmentSerializer.__init__ (FacultyModule/serializers.py) only keeps assessmentchecked_set
   // when serializing a single Assessment — assessment_set nested under this allocation is a
   // many=True context, so the field is always absent there. Fetch each assessment's own detail to
@@ -58,6 +63,7 @@ export function FacultyAllocationDetailPage() {
         if (cancelled) return;
         setDashboard(dashboardRes);
         setDetail(detailRes);
+        setThresholdInput(String(detailRes.passing_threshold));
       })
       .catch((err: unknown) => {
         if (cancelled) return;
@@ -188,6 +194,28 @@ export function FacultyAllocationDetailPage() {
     }
   }
 
+  async function handleSaveThreshold(e: React.FormEvent) {
+    e.preventDefault();
+    setThresholdError(null);
+    setSavingThreshold(true);
+    try {
+      const updated = await apiMutate<FacultyAllocationDetail>(`/faculty/allocations/${allocationId}/`, "PATCH", {
+        passing_threshold: Number(thresholdInput),
+      });
+      setDetail((prev) => (prev ? { ...prev, passing_threshold: updated.passing_threshold } : prev));
+      setMessage("Passing threshold updated.");
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 401) {
+        navigate("/login", { replace: true });
+        return;
+      }
+      const { banner } = apiFormErrors(err);
+      setThresholdError(banner ?? apiErrorMessage(err));
+    } finally {
+      setSavingThreshold(false);
+    }
+  }
+
   return (
     <DashboardShell
       railItems={FACULTY_RAIL_ITEMS}
@@ -229,6 +257,34 @@ export function FacultyAllocationDetailPage() {
           </button>
         </div>
       </div>
+
+      <form className={formStyles.row} onSubmit={handleSaveThreshold}>
+        <div className={formStyles.field} data-invalid={thresholdError ? "true" : undefined}>
+          <label htmlFor="passing_threshold">Passing threshold</label>
+          <input
+            id="passing_threshold"
+            type="number"
+            min={30}
+            max={50}
+            value={thresholdInput}
+            onChange={(e) => setThresholdInput(e.target.value)}
+            disabled={locked}
+          />
+          {thresholdError && <span className={formStyles.fieldError}>{thresholdError}</span>}
+        </div>
+        <div className={formStyles.field}>
+          <label>&nbsp;</label>
+          <button type="submit" className={formStyles.secondaryButton} disabled={locked || savingThreshold}>
+            {savingThreshold ? "Saving…" : "Save threshold"}
+          </button>
+        </div>
+      </form>
+      <p className={formStyles.hint}>
+        Percentage a student must reach to pass this course (30-50). Stays editable while the
+        allocation is Locked so results can be recalculated under a different cutoff — it freezes
+        once the allocation is Completed.
+      </p>
+
       {ungraded > 0 && (
         <p className={formStyles.hint}>{ungraded} assessment mark(s) are still ungraded across this allocation's roster.</p>
       )}
@@ -271,7 +327,7 @@ export function FacultyAllocationDetailPage() {
             {
               key: "student",
               header: "Student",
-              render: (r) => (r.student_info ? `${r.student_info.student_name} — ${r.student_info.student_id}` : r.student),
+              render: (r) => (r.student_info ? `${r.student_info.student_name} · ${r.student_info.student_id}` : r.student),
             },
             { key: "status", header: "Status", render: (r) => <Tag tone={ENROLLMENT_STATUS_TONE[r.status]}>{r.status}</Tag> },
             {

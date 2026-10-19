@@ -6,6 +6,8 @@
   font-weight: 600;
   padding: 0.24rem 0.55rem;
   border-radius: var(--radius-sm);
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .tag::before {
@@ -29,4 +31,14 @@
 .tag[data-tone="critical"] {
   color: var(--color-critical);
   background: var(--color-critical-soft);
+}
+
+.tag[data-tone="info"] {
+  color: var(--color-info);
+  background: var(--color-info-soft);
+}
+
+.tag[data-tone="neutral"] {
+  color: var(--color-neutral);
+  background: var(--color-neutral-soft);
 }

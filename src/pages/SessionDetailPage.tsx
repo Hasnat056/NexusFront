@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useAdminPageConfig } from "../components/layout/AdminShellContext";
+import { SessionCountdownStepper } from "../components/charts/SessionCountdownStepper";
 import { Breadcrumbs } from "../components/ui/Breadcrumbs";
 import { Panel } from "../components/ui/Panel";
 import { Select } from "../components/ui/Select";
@@ -15,17 +16,12 @@ import detailStyles from "./PersonDetailPage.module.css";
 
 const SESSION_PERIODS: SessionPeriod[] = ["Fall", "Spring"];
 const SESSION_STATUS_TONE: Record<SessionStatus, StatusTone> = {
-  Inactive: "warning",
+  Inactive: "neutral",
   Initiated: "warning",
-  Available: "good",
+  Available: "info",
   Active: "good",
   Completed: "critical",
 };
-
-// UI-only guard rail (not enforced by SessionSerializer, which only checks status == 'Active') —
-// requires a session to have run 12 weeks before it can be closed, stricter than what the real
-// API currently accepts.
-const CLOSING_MIN_WEEKS_AFTER_ACTIVATION = 12;
 
 function formatSessionDateTime(iso: string | null): string {
   if (!iso) return "—";
@@ -39,17 +35,10 @@ function toLocalInputValue(iso: string | null): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
-function closingUnlocksAt(activationDeadline: string | null): string | null {
-  if (!activationDeadline) return null;
-  const d = new Date(activationDeadline);
-  d.setUTCDate(d.getUTCDate() + CLOSING_MIN_WEEKS_AFTER_ACTIVATION * 7);
-  return d.toISOString();
-}
-
+// closing_deadline is itself read-only server-side (SessionSerializer.get_extra_kwargs) unless the
+// session's current status is already 'Active' — no additional wait beyond that.
 function isClosingDeadlineUnlocked(session: AdminSession): boolean {
-  if (session.status !== "Active" || !session.activation_deadline) return false;
-  const unlocksAt = closingUnlocksAt(session.activation_deadline);
-  return unlocksAt !== null && new Date() >= new Date(unlocksAt);
+  return session.status === "Active";
 }
 
 function isPeriodLocked(session: AdminSession): boolean {
@@ -59,7 +48,8 @@ function isPeriodLocked(session: AdminSession): boolean {
 function validateActivationDeadline(iso: string): string | null {
   const value = new Date(iso);
   const now = new Date();
-  if (value < now) return "Activation deadline cannot be in the past.";
+  const twoWeeksOut = new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000);
+  if (value < twoWeeksOut) return "Activation deadline must be at least 2 weeks ahead.";
   const fourWeeksOut = new Date(now.getTime() + 28 * 24 * 60 * 60 * 1000);
   if (value > fourWeeksOut) return "Activation deadline cannot be more than 4 weeks in the future.";
   return null;
@@ -67,7 +57,11 @@ function validateActivationDeadline(iso: string): string | null {
 
 function validateClosingDeadline(iso: string, activationDeadline: string | null): string | null {
   const value = new Date(iso);
-  if (value < new Date()) return "Closing deadline cannot be in the past.";
+  const now = new Date();
+  const oneWeekOut = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+  if (value < oneWeekOut) return "Closing deadline must be at least 1 week ahead.";
+  const fourWeeksOut = new Date(now.getTime() + 28 * 24 * 60 * 60 * 1000);
+  if (value > fourWeeksOut) return "Closing deadline cannot be more than 4 weeks ahead.";
   if (activationDeadline && value <= new Date(activationDeadline)) {
     return "Closing deadline must be after the activation deadline.";
   }
@@ -152,7 +146,7 @@ export function SessionDetailPage() {
     try {
       await apiMutate<AdminSession>(`/admin/sessions/${id}/`, "PATCH", { activation_deadline: iso });
       invalidateCache("admin:sessions");
-      showToast("Activation deadline set — status moved to Initiated. Availability and activation happen automatically at those times.");
+      showToast("Activation deadline set. Status moved to Initiated. Availability and activation happen automatically at those times.");
       setRefreshKey((k) => k + 1);
     } catch (err) {
       const { banner, fields } = apiFormErrors(err);
@@ -226,7 +220,6 @@ export function SessionDetailPage() {
 
   const periodLocked = isPeriodLocked(session);
   const closingUnlocked = isClosingDeadlineUnlocked(session);
-  const closingUnlockDate = closingUnlocksAt(session.activation_deadline);
 
   return (
     <>
@@ -249,6 +242,14 @@ export function SessionDetailPage() {
         </div>
         <Tag tone={SESSION_STATUS_TONE[session.status]}>{session.status}</Tag>
       </div>
+
+      {(session.status === "Initiated" || session.status === "Available") && (
+        <SessionCountdownStepper
+          availabilityDeadline={session.availability_deadline}
+          activationDeadline={session.activation_deadline}
+          closingDeadline={session.closing_deadline}
+        />
+      )}
 
       <Panel title="Term">
         <div className={detailStyles.panelBody}>
@@ -279,8 +280,8 @@ export function SessionDetailPage() {
           </form>
           <span className={formStyles.hint}>
             {periodLocked
-              ? "Period is locked once an activation deadline has been set (a guard rail added in this app — SessionSerializer itself never restricts period)."
-              : "Year is locked as soon as this session exists (SessionSerializer.get_extra_kwargs) — only settable at creation."}
+              ? "Period is locked once an activation deadline has been set."
+              : "Year is locked as soon as this session exists, only settable at creation."}
           </span>
         </div>
       </Panel>
@@ -333,11 +334,6 @@ export function SessionDetailPage() {
               </button>
             </div>
           </form>
-          <span className={formStyles.hint}>
-            Submitting forces status to Initiated immediately. session_availability_task (at the
-            availability deadline) and session_activation_task (at the activation deadline) run
-            server-side afterwards to move it to Available then Active.
-          </span>
         </div>
       </Panel>
 
@@ -366,10 +362,8 @@ export function SessionDetailPage() {
           </form>
           <span className={formStyles.hint}>
             {closingUnlocked
-              ? "Submitting schedules session_closing_task, which moves status to Completed at this deadline."
-              : session.status !== "Active"
-                ? "Locked until the session's status is Active (SessionSerializer marks closing_deadline read_only otherwise)."
-                : `Locked for 12 weeks after activation (a guard rail added in this app, on top of the real Active-only check) — unlocks ${formatSessionDateTime(closingUnlockDate)}.`}
+              ? "Submitting this moves status to Completed at this deadline."
+              : "Locked until the session's status is Active."}
           </span>
         </div>
       </Panel>

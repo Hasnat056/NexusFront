@@ -138,7 +138,7 @@ export function SessionTimelineChart({ sessions, formatDate, now = new Date() }:
                     strokeWidth={2}
                     tabIndex={0}
                     role="button"
-                    aria-label={`${session.label} — ${MARKER_LABEL[m.kind]}: ${formatDate(m.date.toISOString())}`}
+                    aria-label={`${session.label}, ${MARKER_LABEL[m.kind]}: ${formatDate(m.date.toISOString())}`}
                     className={styles.marker}
                     onMouseEnter={() => setActive({ sessionId: session.id, kind: m.kind })}
                     onMouseLeave={() => setActive(null)}

@@ -32,6 +32,6 @@ export function selectGpaTrend(rows: SemesterRow[]): TrendPoint[] {
   return rows.map((r) => ({
     label: r.session,
     value: Number(r.semester_gpa),
-    tooltip: `${r.session} (Semester ${r.semester}) — GPA ${Number(r.semester_gpa).toFixed(2)}`,
+    tooltip: `${r.session} (Semester ${r.semester}), GPA ${Number(r.semester_gpa).toFixed(2)}`,
   }));
 }

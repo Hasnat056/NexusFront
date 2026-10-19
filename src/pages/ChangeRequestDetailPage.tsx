@@ -100,19 +100,19 @@ export function ChangeRequestDetailPage() {
   const newHodName = record.new_hod
     ? (() => {
         const f = faculty.find((x) => x.person.person_id === record.new_hod);
-        return f ? `${f.person.first_name} ${f.person.last_name} — ${record.new_hod}` : record.new_hod;
+        return f ? `${f.person.first_name} ${f.person.last_name} · ${record.new_hod}` : record.new_hod;
       })()
     : null;
   const targetFacultyName = record.target_faculty
     ? (() => {
         const f = faculty.find((x) => x.person.person_id === record.target_faculty);
-        return f ? `${f.person.first_name} ${f.person.last_name} — ${record.target_faculty}` : record.target_faculty;
+        return f ? `${f.person.first_name} ${f.person.last_name} · ${record.target_faculty}` : record.target_faculty;
       })()
     : null;
   const targetStudentName = record.target_student
     ? (() => {
         const s = students.find((x) => x.person.person_id === record.target_student);
-        return s ? `${s.person.first_name} ${s.person.last_name} — ${record.target_student}` : record.target_student;
+        return s ? `${s.person.first_name} ${s.person.last_name} · ${record.target_student}` : record.target_student;
       })()
     : null;
 
@@ -225,21 +225,19 @@ export function ChangeRequestDetailPage() {
         )}
         {(canApply || canDecline) && (
           <p className={formStyles.hint}>
-            ChangeRequestPermissions.has_object_permission only allows Apply/Decline for the admin
-            account that originally created this request (requested_by == request.user, checked
-            with no Admin-group or superuser fallback) — a different admin will get a permission
-            error attempting either action here.
+            Only the admin account that originally created this request can apply or decline it. A
+            different admin will get a permission error attempting either action here.
           </p>
         )}
         {isResultCalculation && record.status === "pending" && (
           <p className={formStyles.hint}>
             Waiting on the requester to confirm via the emailed link, then on the faculty member who
-            owns the allocation to apply it from their own request page — Admin has no direct Apply
+            owns the allocation to apply it from their own request page. Admin has no direct Apply
             action for a result calculation request.
           </p>
         )}
         {isResultCalculation && record.status === "confirmed" && (
-          <p className={formStyles.hint}>Confirmed — waiting for the faculty member to apply it from their own request page.</p>
+          <p className={formStyles.hint}>Confirmed. Waiting for the faculty member to apply it from their own request page.</p>
         )}
       </div>
     </>

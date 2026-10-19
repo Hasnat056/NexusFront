@@ -71,7 +71,7 @@ export async function login(username: string, password: string, role: Role): Pro
       headers: { Authorization: `Bearer ${tokens.access}` },
     });
   } catch {
-    throw new ApiError(0, null, "Signed in, but couldn't confirm your role — is the backend running?");
+    throw new ApiError(0, null, "Signed in, but couldn't confirm your role. Is the backend running?");
   }
 
   if (profileRes.status === 403) {

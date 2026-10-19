@@ -41,8 +41,8 @@ export const mockFacultyDirectory: MockFacultyRecord[] = [
     designation: "Associate Professor",
     joining_date: "2019-08-01",
     courseallocation_set: [
-      { urls: "/api/admin/allocations/142/", allocation_id: 142, faculty: "NUM-CS-2019-008", course: "CS-3102", semester: 7, session: "Fall 2026", status: "Ongoing" },
-      { urls: "/api/admin/allocations/156/", allocation_id: 156, faculty: "NUM-CS-2019-008", course: "CS-4210", semester: 7, session: "Fall 2026", status: "Ongoing" },
+      { urls: "/api/admin/allocations/142/", allocation_id: 142, faculty: "NUM-CS-2019-008", course: "CS-3102", semester: 7, session: "Fall 2026", status: "Active", passing_threshold: 50 },
+      { urls: "/api/admin/allocations/156/", allocation_id: 156, faculty: "NUM-CS-2019-008", course: "CS-4210", semester: 7, session: "Fall 2026", status: "Active", passing_threshold: 50 },
     ],
   },
   {
@@ -68,7 +68,7 @@ export const mockFacultyDirectory: MockFacultyRecord[] = [
     designation: "Assistant Professor",
     joining_date: "2021-01-15",
     courseallocation_set: [
-      { urls: "/api/admin/allocations/171/", allocation_id: 171, faculty: "NUM-EE-2021-014", course: "EE-2101", semester: 7, session: "Fall 2026", status: "Ongoing" },
+      { urls: "/api/admin/allocations/171/", allocation_id: 171, faculty: "NUM-EE-2021-014", course: "EE-2101", semester: 7, session: "Fall 2026", status: "Active", passing_threshold: 50 },
     ],
   },
   {

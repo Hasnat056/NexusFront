@@ -53,6 +53,7 @@ import { ClassCreatePage } from "./pages/ClassCreatePage";
 import { ClassDetailPage } from "./pages/ClassDetailPage";
 import { AllocationListPage } from "./pages/AllocationListPage";
 import { AllocationCreatePage } from "./pages/AllocationCreatePage";
+import { AllocationBulkPage } from "./pages/AllocationBulkPage";
 import { AllocationDetailPage } from "./pages/AllocationDetailPage";
 import { EnrollmentListPage } from "./pages/EnrollmentListPage";
 import { EnrollmentCreatePage } from "./pages/EnrollmentCreatePage";
@@ -103,6 +104,7 @@ function App() {
           <Route path="/admin/classes/:classId/edit" element={<ClassDetailPage />} />
           <Route path="/admin/allocations" element={<AllocationListPage />} />
           <Route path="/admin/allocations/new" element={<AllocationCreatePage />} />
+          <Route path="/admin/allocations/bulk" element={<AllocationBulkPage />} />
           <Route path="/admin/allocations/:allocationId" element={<AllocationDetailPage />} />
           <Route path="/admin/allocations/:allocationId/edit" element={<AllocationDetailPage />} />
           <Route path="/admin/enrollments" element={<EnrollmentListPage />} />

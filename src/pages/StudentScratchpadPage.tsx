@@ -378,7 +378,7 @@ export function StudentScratchpadPage() {
               onChange={setCode}
               extensions={editorExtensions}
               theme="none"
-              aria-label={`Code editor — ${active.filename}`}
+              aria-label={`Code editor: ${active.filename}`}
             />
           </div>
         ) : (
@@ -405,7 +405,7 @@ export function StudentScratchpadPage() {
             />
             <span className={formStyles.hint}>
               A single {active.ext} file, a .zip archive, or several loose files. For a .zip or
-              multiple files, one of them must be named {active.filename} — that's the entry point.
+              multiple files, one of them must be named {active.filename}, that's the entry point.
             </span>
 
             {uploadFiles.length > 0 && (

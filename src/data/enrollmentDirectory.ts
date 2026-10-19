@@ -6,6 +6,7 @@ import { mockStudentDirectory } from "./studentDirectory";
 export const ENROLLMENT_STATUS_TONE: Record<EnrollmentStatus, StatusTone> = {
   Inactive: "warning",
   Active: "good",
+  Locked: "warning",
   Completed: "critical",
   Dropped: "critical",
 };
@@ -77,9 +78,9 @@ export const mockEnrollments: AdminEnrollmentSummary[] = [
 ];
 
 /** Mirrors EnrollmentSerializer.get_fields()'s writable `allocation` queryset: only allocations
- * with status='Ongoing' are choosable. */
+ * with status='Active' are choosable. */
 export function eligibleAllocationsForEnrollment() {
-  return mockAllocations.filter((a) => a.status === "Ongoing");
+  return mockAllocations.filter((a) => a.status === "Active");
 }
 
 function allocationLabel(allocationId: number): string {
@@ -142,7 +143,7 @@ export function validateEnrollmentUnique(student: string, allocation: number): s
 export function createEnrollment(input: EnrollmentFormValue): AdminEnrollmentSummary | string {
   const allocationId = Number(input.allocation);
   const allocation = getAllocationById(allocationId);
-  if (!allocation || allocation.status !== "Ongoing") return "Select an ongoing allocation.";
+  if (!allocation || allocation.status !== "Active") return "Select an active allocation.";
   const uniqueError = validateEnrollmentUnique(input.student, allocationId);
   if (uniqueError) return uniqueError;
 

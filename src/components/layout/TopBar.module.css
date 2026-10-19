@@ -38,18 +38,37 @@
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: var(--color-good);
   animation: pulse 2.4s ease-out infinite;
+}
+.dot[data-tone="good"] {
+  background: var(--color-good);
+  --pulse-color: rgba(63, 138, 92, 0.5);
+}
+.dot[data-tone="warning"] {
+  background: var(--color-warning);
+  --pulse-color: rgba(193, 96, 42, 0.5);
+}
+.dot[data-tone="critical"] {
+  background: var(--color-critical);
+  --pulse-color: rgba(178, 59, 59, 0.5);
+}
+.dot[data-tone="info"] {
+  background: var(--color-info);
+  --pulse-color: rgba(59, 110, 165, 0.5);
+}
+.dot[data-tone="neutral"] {
+  background: var(--color-neutral);
+  --pulse-color: rgba(138, 128, 113, 0.5);
 }
 @keyframes pulse {
   0% {
-    box-shadow: 0 0 0 0 rgba(63, 138, 92, 0.5);
+    box-shadow: 0 0 0 0 var(--pulse-color, rgba(63, 138, 92, 0.5));
   }
   70% {
-    box-shadow: 0 0 0 6px rgba(63, 138, 92, 0);
+    box-shadow: 0 0 0 6px rgba(0, 0, 0, 0);
   }
   100% {
-    box-shadow: 0 0 0 0 rgba(63, 138, 92, 0);
+    box-shadow: 0 0 0 0 rgba(0, 0, 0, 0);
   }
 }
 @media (prefers-reduced-motion: reduce) {

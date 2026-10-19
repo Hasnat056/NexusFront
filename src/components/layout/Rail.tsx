@@ -51,7 +51,7 @@ export function Rail({ items, activeId, homeHref }: RailProps) {
             className={styles.item}
             data-active={isActive}
             aria-label={item.label}
-            title={`${item.label} — coming soon`}
+            title={`${item.label} (coming soon)`}
           >
             {content}
           </span>

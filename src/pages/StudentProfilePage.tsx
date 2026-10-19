@@ -179,8 +179,8 @@ export function StudentProfilePage() {
             </div>
           </div>
           <span className={formStyles.hint}>
-            Program, class, admission date, and status are locked — the serializer marks them
-            read_only when a student edits their own record.
+            Program, class, admission date, and status are locked when a student edits their own
+            record.
           </span>
 
           <div className={formStyles.actions}>

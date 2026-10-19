@@ -132,14 +132,19 @@ export interface FacultyDashboardResponse {
 }
 
 /**
- * GET /api/faculty/allocations/?status=Ongoing (FacultyModule/views.py::
- * FacultyCourseAllocationView). Shares AdminModule's CourseAllocationSerializer,
- * whose __init__ pops enrollment_set/lecture_set/assessment_set whenever it's
- * serializing a list (self.instance isn't a single CourseAllocation) — so list
- * rows never carry those nested fields, only the detail view does. `course` is
- * the bare Course PK (course_code) — there's no nested course_name here.
+ * GET /api/faculty/allocations/?status=Active (FacultyModule/views.py::
+ * FacultyCourseAllocationView, which actually queries status__in=['Active', 'Locked',
+ * 'Completed']). Shares AdminModule's CourseAllocationSerializer, whose __init__ pops
+ * enrollment_set/lecture_set/assessment_set whenever it's serializing a list (self.instance isn't
+ * a single CourseAllocation) — so list rows never carry those nested fields, only the detail view
+ * does. `course` is the bare Course PK (course_code) — there's no nested course_name here.
+ *
+ * 'Locked' is set on every allocation of a session once its closing_deadline is reached
+ * (session_locking_task) — assessments and marks freeze, but `passing_threshold` stays writable
+ * and results can still be calculated, since that's the whole point of the locked window. It
+ * moves to 'Completed' once the semester's results are actually generated.
  */
-export type CourseAllocationStatus = "Inactive" | "Ongoing" | "Completed" | "Cancelled";
+export type CourseAllocationStatus = "Inactive" | "Active" | "Locked" | "Completed" | "Cancelled";
 
 export interface FacultyCourseAllocation {
   urls: string;
@@ -149,6 +154,10 @@ export interface FacultyCourseAllocation {
   semester: number;
   session: string;
   status: CourseAllocationStatus;
+  /** 0-100 cutoff a student must reach to pass this course (30-50, default 50). Writable by the
+   * owning faculty until the allocation is 'Completed' — including while it's 'Locked', so
+   * results can be recalculated under a different cutoff. Always read-only for Admin. */
+  passing_threshold: number;
   result_calculation_url: string;
 }
 
@@ -366,7 +375,9 @@ export interface StudentAllocationDetails {
   assessment_set: StudentAssessment[];
 }
 
-export type EnrollmentStatus = "Inactive" | "Active" | "Completed" | "Dropped";
+/** 'Locked' is set alongside its allocation once the session's closing_deadline is reached —
+ * marks and student uploads freeze, but results may still be calculated. */
+export type EnrollmentStatus = "Inactive" | "Active" | "Locked" | "Completed" | "Dropped";
 
 /** Nested on StudentEnrollment as `result` (StudentEnrollmentSerializer.get_result — a
  * SerializerMethodField, not a real DecimalField instance, so unlike every other Decimal on this
@@ -574,16 +585,18 @@ export type StudentStatus = "Active" | "Dropped" | "Frozen" | "Graduated" | "On 
  * assessment_set/enrollment_set/lecture_set the real detail view nests (Assessment/Lecture aren't
  * built as resources here).
  *
- * `unique_together = ('faculty', 'course', 'semester')` on the model (Models/models.py::
- * CourseAllocation). `session` is a plain string copied from `semester.session` at creation time
- * (not a live FK) and is never client-writable, same as `status` — CourseAllocationSerializer
- * never lets either be set directly through this endpoint. get_fields() restricts the writable
- * `semester` choices to Semester rows that are status='Inactive' AND whose session.status ==
- * 'Initiated' (plus the semester's own activation_deadline must be set — not tracked in this
- * frontend, see data/allocationDirectory.ts's eligibleSemestersForAllocation()); create() also
- * 400s if the chosen `course` isn't one of that semester's scheme_of_studies courses.
- * AdminCourseAllocationPermissions additionally locks the whole record read-only for Admin once
- * `status` moves past 'Inactive' (Ongoing/Completed/Cancelled) — no edit, no delete.
+ * `unique_together = ('course', 'semester')` on the model (Models/models.py::CourseAllocation) —
+ * one course in one semester is one section with one teacher. `session` is a plain string copied
+ * from `semester.session` at creation time (not a live FK) and is never client-writable, same as
+ * `status` — CourseAllocationSerializer never lets either be set directly through this endpoint.
+ * get_fields() restricts the writable `semester` choices (on create) to Semester rows that are
+ * status='Inactive' AND whose session.status == 'Initiated'; create() also 400s if the chosen
+ * `course` isn't one of that semester's scheme_of_studies courses. On an existing allocation,
+ * `course`/`semester` are always read-only for Admin (only `faculty` can be reassigned) — moving
+ * either would silently relocate any enrollments already hanging off it.
+ * AdminCourseAllocationPermissions further locks a record down by its own `status`: 'Inactive' and
+ * 'Locked' stay editable/deletable (Locked is exactly the window a reassignment or a
+ * passing_threshold change is meant for); 'Active' and 'Completed' are GET-only for Admin.
  */
 export interface AdminCourseAllocationSummary {
   urls: string;
@@ -593,6 +606,69 @@ export interface AdminCourseAllocationSummary {
   semester: number;
   session: string;
   status: CourseAllocationStatus;
+  /** 0-100 cutoff a student must reach to pass this course (30-50, default 50). Always read-only
+   * for Admin — only the owning faculty can change it, from their own allocation endpoint. */
+  passing_threshold: number;
+}
+
+/**
+ * GET/POST /api/admin/allocations/bulk/ (AdminModule/views.py::BulkCourseAllocationAPIView) — the
+ * allocation worksheet for the live session, an alternative to one-at-a-time creation via
+ * AdminCourseAllocationSummary above. GET with no query params resolves "the live session" as
+ * whichever one is currently 'Initiated' or 'Available' (at most one ever is); `?session=<id>`
+ * picks one explicitly. `session: null` means no session is currently open for allocation at all.
+ * A null `course.allocation_id`/`course.faculty` marks a course still needing a teacher.
+ */
+export interface AdminAllocationBulkFaculty {
+  employee_id: string;
+  name: string;
+}
+
+export interface AdminAllocationBulkCourse {
+  course_code: string;
+  course_name: string;
+  credit_hours: number;
+  lab: boolean;
+  allocation_id: number | null;
+  faculty: AdminAllocationBulkFaculty | null;
+}
+
+export interface AdminAllocationBulkClass {
+  class_id: number;
+  class: string;
+  semester_id: number;
+  semester_no: number;
+  courses: AdminAllocationBulkCourse[];
+}
+
+export interface AdminAllocationBulkSession {
+  id: number;
+  period: SessionPeriod;
+  year: number;
+  status: SessionStatus;
+}
+
+export interface AdminAllocationBulkResponse {
+  session: AdminAllocationBulkSession | null;
+  classes: AdminAllocationBulkClass[];
+}
+
+/**
+ * POST body is a bare JSON array (not wrapped in an object) of `{semester, course, faculty}` rows —
+ * BulkCourseAllocationListSerializer.validate() requires every row to belong to semesters of one
+ * 'Initiated' session, each semester still 'Inactive', each (semester, course) pair present in that
+ * semester's scheme of studies, and no duplicate rows. On success, existing (semester, course)
+ * pairs with an unchanged faculty are left alone — only genuinely new or reassigned rows count.
+ */
+export interface AdminAllocationBulkRow {
+  semester: number;
+  course: string;
+  faculty: string;
+}
+
+export interface AdminAllocationBulkResult {
+  created: number;
+  updated: number;
 }
 
 export interface AdminFacultyListItem {
@@ -620,11 +696,11 @@ export interface AdminFacultyDetail extends AdminFacultyListItem {
  * `enrollment_date` is `auto_now_add`, never client-writable. `unique_together = ('student',
  * 'allocation')` on the model (Models/models.py::Enrollment) — one enrollment per student per
  * allocation. get_fields() restricts the writable `allocation` choices to CourseAllocation rows
- * with status='Ongoing'; create() also auto-creates a blank Result row and an AssessmentChecked
+ * with status='Active'; create() also auto-creates a blank Result row and an AssessmentChecked
  * row per existing Assessment on that allocation (side effects, not modeled here). Deletion is
  * blocked once `result.course_gpa` is set (EnrollmentRetrieveUpdateDestroyAPIView.perform_destroy
- * raises PermissionDenied) and once `status` is 'Completed' (permission layer, GET-only past
- * that point).
+ * raises PermissionDenied) and once `status` is 'Locked' or 'Completed' (permission layer, GET-only
+ * past that point).
  */
 export interface AdminEnrollmentResult {
   result_id: number;
@@ -754,8 +830,10 @@ export interface AdminProgram {
  *   - otherwise → a plain field update (e.g. availability_delta alone, before activation).
  * `year` is client-supplied on create but becomes read_only on every subsequent update.
  * `availability_deadline` is a read-only computed property, never stored or writable.
- * Validation: year can't be in the past; activation_deadline can't be in the past or more than
- * 4 weeks out; closing_deadline can't be in the past and must be after activation_deadline.
+ * Validation: year can't be in the past; activation_deadline must be at least 2 weeks out and no
+ * more than 4; closing_deadline must be at least 1 week out, no more than 4, after
+ * activation_deadline, and can never be cleared back to null once set (that would strand the
+ * locking cascade and the reminder tasks, already keyed to it).
  */
 export type SessionPeriod = "Fall" | "Spring";
 export type SessionStatus = "Inactive" | "Initiated" | "Available" | "Active" | "Completed";
@@ -864,29 +942,20 @@ export interface AdminClass {
  * uses (SemesterClassSerializer above) — this one adds the real lifecycle fields that view never
  * exposes.
  *
- * `associated_class` is a SerializerMethodField returning a string repr (Class.__str__, e.g.
- * "CS-BS-2023"), not the class_id — there's no PK to link back to the class's own detail page from
- * this field alone. `semester_no` and `status` are always read-only; `status` only ever moves via
- * semester_activation_task/semester_closing_task, Celery jobs scheduled with eta=activation_deadline
- * /eta=closing_deadline respectively (not modeled here — no scheduler in this mock, same
- * simplification already applied to AcademicSession's status transitions in data/sessionDirectory.ts).
+ * A semester no longer carries its own activation/closing deadline — those fields were removed from
+ * the model entirely. Activation and closing are now driven purely by the AcademicSession it's bound
+ * to (see AdminSession below) and cascade down to every semester on that session at once; there is
+ * nothing left to PATCH on a semester for scheduling. `associated_class` is a SerializerMethodField
+ * returning a string repr (Class.__str__, e.g. "CS-BS-2023"), not the class_id — there's no PK to
+ * link back to the class's own detail page from this field alone. `semester_no` and `status` are
+ * always read-only; `status` only ever moves via the session's own activation/closing tasks. `session`
+ * itself is writable while `status === 'Inactive'` (the only way to bind/rebind it directly, besides
+ * through the class's scheme_of_studies) and goes read-only the moment the semester leaves 'Inactive'
+ * — rebinding a semester that's already live would strand it in the wrong lifecycle.
  *
- * get_extra_kwargs() dynamic locking:
- *   - activation_deadline unset → closing_deadline locked (can't close before activating).
- *   - activation_deadline set and already past → activation_deadline AND session locked.
- *   - activation_deadline set, still future, status still Inactive → closing_deadline locked
- *     (can't close a semester that hasn't activated yet).
- *   - both deadlines set and closing_deadline already past → activation_deadline, closing_deadline,
- *     and session all locked (fully historical).
- * validate_activation_deadline/validate_closing_deadline reject past dates and, per the real
- * backend, anything less than 7 minutes out — a very tight window, likely a bug in that code,
- * reproduced here rather than silently loosened.
- *
- * update() with activation_deadline also 400s if the semester's class already has another semester
- * that's Active, or another Inactive semester with its own activation_deadline already scheduled —
- * only one semester per class can be active or activating at a time. update() with closing_deadline
- * 400s unless every enrollment under this semester's allocations already has a Result with a
- * course_gpa set.
+ * `transcript_generation_url` is present only once the semester's session has its own
+ * `closing_deadline` set — transcripts belong to the closing window, before which coursework isn't
+ * locked and results are still being entered.
  *
  * The real payload also nests `semesterdetails_set`/`courseallocation_set`/`transcript_set`
  * (read-only) — not independently re-typed here since equivalent data already exists in this
@@ -900,8 +969,6 @@ export interface AdminSemester {
   semester_no: number;
   session: number | null;
   status: SemesterStatus;
-  activation_deadline: string | null;
-  closing_deadline: string | null;
   associated_class: string;
 }
 
@@ -920,6 +987,7 @@ export interface CurrentAcademicSession {
   period: "Fall" | "Spring";
   year: number;
   status: CurrentAcademicSessionStatus;
+  activation_deadline: string | null;
   availability_deadline: string | null;
   closing_deadline: string | null;
 }

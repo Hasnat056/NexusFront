@@ -178,7 +178,10 @@ export function FacultyAllocationAssessmentsPage() {
     );
   }
 
-  const locked = detail.status === "Completed";
+  // Assessment structure (type/name/date/weightage/total/deadline) freezes once the allocation is
+  // Locked or Completed — Locked is set the moment the session's closing_deadline is reached, before
+  // the allocation itself finishes moving to Completed.
+  const locked = detail.status === "Locked" || detail.status === "Completed";
 
   function startAddAssessment() {
     setAssessmentForm(EMPTY_ASSESSMENT_FORM);
@@ -341,7 +344,7 @@ export function FacultyAllocationAssessmentsPage() {
       profileHref="/faculty/profile"
       avatarInitials={avatarInitials}
       avatarSrc={dashboard.faculty.image}
-      pageTitle={`${detail.course} — Assessments`}
+      pageTitle={`${detail.course} · Assessments`}
       subtitle={`${detail.session} · Semester ${detail.semester} · ${dashboard.faculty.institutional_email}`}
     >
       <Breadcrumbs
@@ -528,7 +531,7 @@ export function FacultyAllocationAssessmentsPage() {
 
       {expandedAssessment && (
         <Panel
-          title={`Grading — ${expandedAssessment.assessment_name}`}
+          title={`Grading: ${expandedAssessment.assessment_name}`}
           hint={`${expandedAssessment.assessment_date} · ${expandedAssessment.weightage}% · out of ${expandedAssessment.total_marks}${
             expandedAssessment.student_submission && expandedAssessment.submission_deadline
               ? ` · due ${formatDateTime(expandedAssessment.submission_deadline)}`

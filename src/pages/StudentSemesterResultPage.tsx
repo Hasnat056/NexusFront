@@ -147,7 +147,7 @@ export function StudentSemesterResultPage() {
             { label: id ?? "Not found" },
           ]}
         />
-        <p className={styles.notFound}>Semester {id} was not found — no result has been generated for it yet.</p>
+        <p className={styles.notFound}>Semester {id} was not found. No result has been generated for it yet.</p>
       </DashboardShell>
     );
   }

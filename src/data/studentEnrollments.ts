@@ -3,6 +3,7 @@ import type { CourseCardData, StatusTone } from "../types/dashboard";
 
 const ENROLLMENT_STATUS_TONE: Record<EnrollmentStatus, StatusTone> = {
   Active: "good",
+  Locked: "warning",
   Completed: "good",
   Inactive: "warning",
   Dropped: "critical",
@@ -41,14 +42,16 @@ export function selectStudentCourseCards(response: StudentEnrollmentsResponse): 
 
 /** An assessment's submission window is only open — and only then does the real API even expose
  * the `urls` upload link — while student_submission is true, the deadline (if any) hasn't
- * passed, and the enrollment itself isn't Completed (see StudentAssessmentCheckedSerializer.
- * __init__/get_extra_kwargs in StudentModule/serializers.py). Mirrors that gate client-side so the
- * upload control only ever renders when the real API would actually accept it. */
+ * passed, and the enrollment itself isn't Locked or Completed (see StudentAssessmentCheckedSerializer.
+ * __init__/get_extra_kwargs in StudentModule/serializers.py; an enrollment locks alongside its
+ * allocation once the session's closing_deadline is set — marks and uploads freeze from there).
+ * Mirrors that gate client-side so the upload control only ever renders when the real API would
+ * actually accept it. */
 export function isSubmissionWindowOpen(
   enrollmentStatus: EnrollmentStatus,
   submissionDeadline: string | null | undefined,
 ): boolean {
-  if (enrollmentStatus === "Completed") return false;
+  if (enrollmentStatus === "Locked" || enrollmentStatus === "Completed") return false;
   if (!submissionDeadline) return false;
   return new Date(submissionDeadline).getTime() > Date.now();
 }

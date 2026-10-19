@@ -8,7 +8,7 @@ import { EnrollmentPickCard } from "../components/ui/EnrollmentPickCard";
 import { WhatsDuePanel } from "../components/ui/WhatsDuePanel";
 import { NotificationsPanel } from "../components/ui/NotificationsPanel";
 import { useNotifications } from "../hooks/useNotifications";
-import { useCurrentSessionLabel } from "../hooks/useCurrentSession";
+import { useCurrentSessionPill } from "../hooks/useCurrentSession";
 import { selectStudentCourseCards, selectWhatsDue } from "../data/studentEnrollments";
 import { apiGet, apiGetAllPages, apiMutate } from "../lib/auth";
 import { ApiError, apiErrorMessage } from "../lib/api";
@@ -28,7 +28,7 @@ export function StudentDashboardPage() {
   const navigate = useNavigate();
   const [panelOpen, setPanelOpen] = useState(false);
   const notifications = useNotifications();
-  const sessionLabel = useCurrentSessionLabel();
+  const sessionPill = useCurrentSessionPill();
 
   const [dashboard, setDashboard] = useState<StudentDashboardResponse | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -176,7 +176,7 @@ export function StudentDashboardPage() {
       avatarInitials={avatarInitials}
       avatarSrc={dashboard.image}
       pageTitle="Student dashboard"
-      sessionLabel={sessionLabel ?? undefined}
+      sessionPill={sessionPill}
       subtitle={dashboard.institutional_email}
       sidePanel={
         windowOpen ? (
@@ -215,7 +215,7 @@ export function StudentDashboardPage() {
         <>
           <div className={styles.windowBanner}>
             <p>
-              Enrollment window is open — select your courses for next session, then submit. Active shows zero on
+              Enrollment window is open. Select your courses for next session, then submit. Active shows zero on
               purpose: nothing becomes Active until the window closes.
             </p>
           </div>

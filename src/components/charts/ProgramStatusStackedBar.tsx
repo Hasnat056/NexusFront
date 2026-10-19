@@ -110,7 +110,7 @@ export function ProgramStatusStackedBar({ points }: ProgramStatusStackedBarProps
                   className={styles.row}
                   tabIndex={0}
                   role="button"
-                  aria-label={`${row.programName}: ${row.total} student${row.total === 1 ? "" : "s"} — ${row.segments
+                  aria-label={`${row.programName}: ${row.total} student${row.total === 1 ? "" : "s"}, ${row.segments
                     .map((s) => `${s.status} ${s.count}`)
                     .join(", ")}`}
                   onMouseEnter={() => setActive(row.programId)}
@@ -165,7 +165,7 @@ export function ProgramStatusStackedBar({ points }: ProgramStatusStackedBarProps
           )}
         </div>
       </div>
-      {scrolls && <p className={styles.scrollHint}>{rows.length} programs — scroll to see the rest.</p>}
+      {scrolls && <p className={styles.scrollHint}>{rows.length} programs, scroll to see the rest.</p>}
 
       <div className={styles.legend}>
         {STUDENT_STATUS_ORDER.map((status) => (

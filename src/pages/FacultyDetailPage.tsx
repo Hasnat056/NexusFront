@@ -19,7 +19,8 @@ import formStyles from "../components/ui/Form.module.css";
 import styles from "./PersonDetailPage.module.css";
 
 const ALLOCATION_TONE: Record<AdminCourseAllocationSummary["status"], StatusTone> = {
-  Ongoing: "good",
+  Active: "good",
+  Locked: "warning",
   Completed: "good",
   Inactive: "warning",
   Cancelled: "critical",
@@ -335,11 +336,7 @@ export function FacultyDetailPage() {
             )}
           </Panel>
 
-          <p className={formStyles.hint}>
-            FacultyRetrieveUpdateAPIView only wires GET/PUT/PATCH — there's no DELETE route for a
-            faculty record, so this app has no deletion action here (destroy_mixin exists on the
-            view but nothing routes DELETE to it).
-          </p>
+          <p className={formStyles.hint}>There's no way to delete a faculty record from here.</p>
         </>
       )}
     </>

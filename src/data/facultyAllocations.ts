@@ -2,17 +2,19 @@ import type { CourseAllocationStatus, FacultyCourseAllocation } from "../types/a
 import type { CourseCardData, StatusTone } from "../types/dashboard";
 
 const ALLOCATION_STATUS_TONE: Record<CourseAllocationStatus, StatusTone> = {
-  Ongoing: "good",
+  Active: "good",
+  Locked: "warning",
   Completed: "good",
   Inactive: "warning",
   Cancelled: "critical",
 };
 
-/** Ongoing (currently teaching) sorts first, then Inactive, then Completed/Cancelled last — within
- * each status group, most recent semester first. Used by the full Allocations list page; the
- * dashboard itself only ever shows the Ongoing subset, so it doesn't need this ordering. */
+/** Active/Locked (currently teaching) sorts first, then Inactive, then Completed/Cancelled last —
+ * within each status group, most recent semester first. Used by the full Allocations list page; the
+ * dashboard itself only ever shows the Active/Locked subset, so it doesn't need this ordering. */
 const STATUS_LIST_PRIORITY: Record<CourseAllocationStatus, number> = {
-  Ongoing: 0,
+  Active: 0,
+  Locked: 0,
   Inactive: 1,
   Completed: 2,
   Cancelled: 3,

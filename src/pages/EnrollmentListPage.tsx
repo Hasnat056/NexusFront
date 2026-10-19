@@ -11,10 +11,11 @@ import type { AdminEnrollmentSummary, EnrollmentStatus } from "../types/api";
 import type { StatusTone } from "../types/dashboard";
 import styles from "./FacultyListPage.module.css";
 
-const STATUS_OPTIONS: EnrollmentStatus[] = ["Inactive", "Active", "Completed", "Dropped"];
+const STATUS_OPTIONS: EnrollmentStatus[] = ["Inactive", "Active", "Locked", "Completed", "Dropped"];
 const ENROLLMENT_STATUS_TONE: Record<EnrollmentStatus, StatusTone> = {
   Inactive: "warning",
   Active: "good",
+  Locked: "warning",
   Completed: "critical",
   Dropped: "critical",
 };

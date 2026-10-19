@@ -97,8 +97,11 @@ export function SemesterListPage() {
     },
     { key: "session", header: "Session", render: (row) => sessionLabel(row.session) },
     { key: "status", header: "Status", render: (row) => <Tag tone={SEMESTER_STATUS_TONE[row.status]}>{row.status}</Tag> },
-    { key: "activation", header: "Activation deadline", render: (row) => formatSessionDateTime(row.activation_deadline) },
-    { key: "closing", header: "Closing deadline", render: (row) => formatSessionDateTime(row.closing_deadline) },
+    {
+      key: "closing",
+      header: "Session closes",
+      render: (row) => formatSessionDateTime(sessions.find((s) => s.id === row.session)?.closing_deadline ?? null),
+    },
   ];
 
   const rows = useMemo(() => {

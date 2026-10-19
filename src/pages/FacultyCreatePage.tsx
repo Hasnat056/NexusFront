@@ -123,10 +123,6 @@ export function FacultyCreatePage() {
 
       <form className={styles.card} onSubmit={handleSubmit}>
         <h1 className={styles.headline}>New faculty member</h1>
-        <p className={styles.subhead}>
-          Mirrors POST /api/admin/faculty/ (AdminModule/views.py::FacultyListCreateAPIView) — person_id and
-          username are generated server-side, not entered here.
-        </p>
 
         {error && <div className={formStyles.errorBanner}>{error}</div>}
 

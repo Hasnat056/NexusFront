@@ -130,12 +130,8 @@ export function TranscriptListPage() {
         ]}
       />
       <p className={formStyles.hint}>
-        Mirrors GET /api/admin/transcripts/ (TranscriptListCreateAPIView) — student and semester
-        filter the real endpoint directly (filterset_fields); search matches its search_fields
-        (student's person_id/first/last name). There's no create form here — generate transcripts
-        for a whole semester from that semester's own page (POST
-        /api/admin/semesters/&lt;id&gt;/transcripts-create/), and no way to edit or delete an
-        individual one — the real API has no route for either.
+        There's no create form here. Generate transcripts for a whole semester from that
+        semester's own page, and there's no way to edit or delete an individual one.
       </p>
 
       <Panel title="Transcripts" hint={transcripts ? `${filteredRows.length} of ${transcripts.length}` : undefined}>

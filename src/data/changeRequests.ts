@@ -172,13 +172,13 @@ export function changeRequestHeadline(cr: ChangeRequest): string {
   const label = CHANGE_TYPE_LABEL[cr.change_type];
   switch (cr.change_type) {
     case "hod_change":
-      return `${label} requested — ${cr.department ?? "department"}`;
+      return `${label} requested: ${cr.department ?? "department"}`;
     case "faculty_delete":
-      return `${label} requested — ${cr.target_faculty ?? "faculty member"}`;
+      return `${label} requested: ${cr.target_faculty ?? "faculty member"}`;
     case "student_delete":
-      return `${label} requested — ${cr.target_student ?? "student"}`;
+      return `${label} requested: ${cr.target_student ?? "student"}`;
     case "result_calculation":
-      return `${label} requested — allocation #${cr.target_allocation ?? "—"}`;
+      return `${label} requested: allocation #${cr.target_allocation ?? "—"}`;
   }
 }
 

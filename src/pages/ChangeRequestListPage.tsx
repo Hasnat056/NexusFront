@@ -65,17 +65,17 @@ export function ChangeRequestListPage() {
   function headlineFor(cr: ChangeRequest): string {
     if (cr.change_type === "hod_change") {
       const dept = departments.find((d) => d.department_id === cr.department);
-      return `${CHANGE_TYPE_LABEL.hod_change} requested — ${dept?.department_name ?? cr.department ?? "department"}`;
+      return `${CHANGE_TYPE_LABEL.hod_change} requested: ${dept?.department_name ?? cr.department ?? "department"}`;
     }
     if (cr.change_type === "faculty_delete") {
       const f = faculty.find((x) => x.person.person_id === cr.target_faculty);
       const name = f ? `${f.person.first_name} ${f.person.last_name}` : cr.target_faculty;
-      return `${CHANGE_TYPE_LABEL.faculty_delete} requested — ${name ?? "faculty member"}`;
+      return `${CHANGE_TYPE_LABEL.faculty_delete} requested: ${name ?? "faculty member"}`;
     }
     if (cr.change_type === "student_delete") {
       const s = students.find((x) => x.person.person_id === cr.target_student);
       const name = s ? `${s.person.first_name} ${s.person.last_name}` : cr.target_student;
-      return `${CHANGE_TYPE_LABEL.student_delete} requested — ${name ?? "student"}`;
+      return `${CHANGE_TYPE_LABEL.student_delete} requested: ${name ?? "student"}`;
     }
     return changeRequestHeadline(cr);
   }

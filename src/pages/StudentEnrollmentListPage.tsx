@@ -8,7 +8,7 @@ import { Table, type Column } from "../components/ui/Table";
 import { Tag } from "../components/ui/Tag";
 import type { StatusTone } from "../types/dashboard";
 import type { EnrollmentStatus, StudentDashboardResponse, StudentEnrollment } from "../types/api";
-import { useCurrentSessionLabel } from "../hooks/useCurrentSession";
+import { useCurrentSessionPill } from "../hooks/useCurrentSession";
 import { apiGet, apiGetAllPages } from "../lib/auth";
 import { ApiError, apiErrorMessage } from "../lib/api";
 import formStyles from "../components/ui/Form.module.css";
@@ -16,12 +16,13 @@ import styles from "./FacultyListPage.module.css";
 
 const ENROLLMENT_STATUS_TONE: Record<EnrollmentStatus, StatusTone> = {
   Active: "good",
+  Locked: "warning",
   Completed: "good",
   Inactive: "warning",
   Dropped: "critical",
 };
 
-const STATUS_OPTIONS: EnrollmentStatus[] = ["Active", "Completed", "Inactive", "Dropped"];
+const STATUS_OPTIONS: EnrollmentStatus[] = ["Active", "Locked", "Completed", "Inactive", "Dropped"];
 
 function facultyName(enrollment: StudentEnrollment): string {
   const details = enrollment.allocation_details.faculty_details;
@@ -67,7 +68,7 @@ const columns: Column<StudentEnrollment>[] = [
 
 export function StudentEnrollmentListPage() {
   const navigate = useNavigate();
-  const sessionLabel = useCurrentSessionLabel();
+  const sessionPill = useCurrentSessionPill();
   const [dashboard, setDashboard] = useState<StudentDashboardResponse | null>(null);
   const [enrollments, setEnrollments] = useState<StudentEnrollment[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -134,7 +135,7 @@ export function StudentEnrollmentListPage() {
       avatarInitials={avatarInitials}
       avatarSrc={dashboard.image}
       pageTitle="Enrollments"
-      sessionLabel={sessionLabel ?? undefined}
+      sessionPill={sessionPill}
       subtitle={dashboard.institutional_email}
       profileHref="/student/profile"
     >

@@ -22,6 +22,7 @@ import pageStyles from "./StudentEnrollmentDetailPage.module.css";
 
 const ENROLLMENT_STATUS_TONE: Record<EnrollmentStatus, StatusTone> = {
   Active: "good",
+  Locked: "warning",
   Completed: "good",
   Inactive: "warning",
   Dropped: "critical",
@@ -255,7 +256,7 @@ export function StudentEnrollmentDetailPage() {
         )}
       </Panel>
 
-      {enrollment.status === "Completed" && (
+      {enrollment.result != null && (
         <Panel title="Result">
           {enrollment.result?.course_gpa != null ? (
             <div className={styles.panelBody}>

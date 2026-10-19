@@ -41,6 +41,16 @@
   min-width: 240px;
 }
 
+.optionDot {
+  display: inline-block;
+  width: 5px;
+  height: 5px;
+  margin: 0 0.5em;
+  border-radius: 50%;
+  background: var(--color-accent);
+  vertical-align: middle;
+}
+
 .pillReview {
   display: flex;
   align-items: center;

@@ -105,7 +105,7 @@ export function FacultyRequestDetailPage() {
     setError(null);
     try {
       await apiMutate<FacultyChangeRequest>(`/faculty/requests/${id}/`, "PUT", { status: "applied" });
-      showToast("Results calculated — allocation marked Completed.");
+      showToast("Results calculated. The allocation moves to Completed once the session closes.");
       setRefreshKey((k) => k + 1);
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) {

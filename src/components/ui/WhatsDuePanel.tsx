@@ -18,7 +18,7 @@ export function WhatsDuePanel({ items, open, onClose, onOpen }: WhatsDuePanelPro
       onClose={onClose}
       onOpen={onOpen}
       reopenLabel="Due"
-      emptyMessage="Nothing due — no assessments have an open deadline right now."
+      emptyMessage="Nothing due. No assessments have an open deadline right now."
     >
       {items.map((item) => (
         <div className={styles.row} key={item.id}>

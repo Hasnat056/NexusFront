@@ -91,9 +91,9 @@ export function AllocationCreatePage() {
           <p className={formStyles.hint}>Loading…</p>
         ) : eligibleSemesters.length === 0 ? (
           <p className={formStyles.hint}>
-            No semester is currently eligible. Three things have to line up: a session with an
-            activation deadline set (Sessions), that session assigned to a blank semester on a class
-            (Classes), and that semester's own activation deadline set too (Semesters).
+            No semester is currently eligible. Two things have to line up: a session with an
+            activation deadline set, currently Initiated (Sessions), and that session assigned to a
+            blank semester on a class (Classes).
           </p>
         ) : (
           <>
@@ -108,7 +108,7 @@ export function AllocationCreatePage() {
                   invalid={Boolean(fieldErrors.faculty)}
                   options={faculty.map((f) => ({
                     value: f.person.person_id,
-                    label: `${f.person.person_id} — ${f.person.first_name} ${f.person.last_name}`,
+                    label: `${f.person.person_id} · ${f.person.first_name} ${f.person.last_name}`,
                   }))}
                 />
                 {fieldErrors.faculty && <span className={formStyles.fieldError}>{fieldErrors.faculty}</span>}

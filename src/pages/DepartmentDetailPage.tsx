@@ -131,7 +131,7 @@ export function DepartmentDetailPage() {
     }
     try {
       await apiMutate(`/admin/departments/${departmentId}/`, "PATCH", { HOD: hod });
-      showToast("HOD change request submitted — a confirmation email has been sent. The HOD won't change until it's confirmed and applied.");
+      showToast("HOD change request submitted. A confirmation email has been sent. The HOD won't change until it's confirmed and applied.");
       setRefreshKey((k) => k + 1);
     } catch (err) {
       const { banner, fields } = apiFormErrors(err);
@@ -229,7 +229,14 @@ export function DepartmentDetailPage() {
                   { value: "", label: "Unassigned" },
                   ...facultyOptions.map((f) => ({
                     value: f.person.person_id,
-                    label: `${f.person.first_name} ${f.person.last_name} — ${f.person.person_id}`,
+                    label: `${f.person.first_name} ${f.person.last_name} ${f.person.person_id}`,
+                    labelNode: (
+                      <>
+                        {f.person.first_name} {f.person.last_name}
+                        <span className={styles.optionDot} />
+                        {f.person.person_id}
+                      </>
+                    ),
                   })),
                 ]}
               />

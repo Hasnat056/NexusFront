@@ -17,6 +17,10 @@
   --color-warning-soft: rgba(193, 96, 42, 0.12);
   --color-critical: #b23b3b;
   --color-critical-soft: rgba(178, 59, 59, 0.12);
+  --color-info: #3b6ea5;
+  --color-info-soft: rgba(59, 110, 165, 0.12);
+  --color-neutral: #8a8071;
+  --color-neutral-soft: rgba(138, 128, 113, 0.12);
 
   --color-rail-bg: #1d1811;
   --color-rail-muted: #948a76;

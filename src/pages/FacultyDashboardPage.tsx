@@ -25,12 +25,14 @@ export function FacultyDashboardPage() {
     let cancelled = false;
     Promise.all([
       apiGet<FacultyDashboardResponse>("/faculty/dashboard/"),
-      apiGetAllPages<FacultyCourseAllocation>("/faculty/allocations/?status=Ongoing"),
+      // FacultyCourseAllocationView.get_queryset() ignores any `status` query param and always
+      // returns Active + Locked + Completed — filtered client-side to just the still-current ones.
+      apiGetAllPages<FacultyCourseAllocation>("/faculty/allocations/"),
     ])
       .then(([dashboardRes, allocationsRes]) => {
         if (cancelled) return;
         setDashboard(dashboardRes);
-        setOngoingAllocations(allocationsRes);
+        setOngoingAllocations(allocationsRes.filter((a) => a.status === "Active" || a.status === "Locked"));
       })
       .catch((err: unknown) => {
         if (cancelled) return;

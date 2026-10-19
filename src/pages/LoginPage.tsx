@@ -2,7 +2,7 @@ import { useState, type FormEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { login, ROLES, type Role } from "../lib/auth";
 import { apiErrorMessage } from "../lib/api";
-import { useCurrentSessionLabel } from "../hooks/useCurrentSession";
+import { useCurrentSessionPill } from "../hooks/useCurrentSession";
 import { IconEye, IconEyeOff } from "../components/icons/Icons";
 import styles from "./LoginPage.module.css";
 
@@ -14,7 +14,7 @@ const ROLE_HOME: Record<Role, string> = {
 
 export function LoginPage() {
   const navigate = useNavigate();
-  const sessionLabel = useCurrentSessionLabel();
+  const sessionPill = useCurrentSessionPill();
   const [role, setRole] = useState<Role>("Admin");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -127,10 +127,10 @@ export function LoginPage() {
             {fieldErrors.password && <span className={styles.fieldError}>{fieldErrors.password}</span>}
           </div>
           <div className={styles.meta}>
-            {sessionLabel ? (
+            {sessionPill ? (
               <span className={styles.sessionPill}>
-                <span className={styles.dot} />
-                {sessionLabel}
+                <span className={styles.dot} data-tone={sessionPill.tone} />
+                {sessionPill.label}
               </span>
             ) : (
               <span />

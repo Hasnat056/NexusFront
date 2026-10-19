@@ -7,7 +7,8 @@ export { semesterRefById, type SemesterRef } from "./semesterDirectory";
 
 export const ALLOCATION_STATUS_TONE: Record<CourseAllocationStatus, StatusTone> = {
   Inactive: "warning",
-  Ongoing: "good",
+  Active: "good",
+  Locked: "warning",
   Completed: "critical",
   Cancelled: "critical",
 };
@@ -33,6 +34,7 @@ export const mockAllocations: AdminCourseAllocationSummary[] = [
     semester: 1,
     session: "Fall 2025",
     status: "Completed",
+    passing_threshold: 50,
   },
   {
     urls: "/api/admin/allocations/101/",
@@ -42,6 +44,7 @@ export const mockAllocations: AdminCourseAllocationSummary[] = [
     semester: 2,
     session: "Fall 2025",
     status: "Cancelled",
+    passing_threshold: 50,
   },
   {
     urls: "/api/admin/allocations/142/",
@@ -50,7 +53,8 @@ export const mockAllocations: AdminCourseAllocationSummary[] = [
     course: "CS-3102",
     semester: 7,
     session: "Fall 2026",
-    status: "Ongoing",
+    status: "Active",
+    passing_threshold: 50,
   },
   {
     urls: "/api/admin/allocations/156/",
@@ -59,7 +63,8 @@ export const mockAllocations: AdminCourseAllocationSummary[] = [
     course: "CS-4210",
     semester: 7,
     session: "Fall 2026",
-    status: "Ongoing",
+    status: "Active",
+    passing_threshold: 50,
   },
   {
     urls: "/api/admin/allocations/171/",
@@ -68,7 +73,8 @@ export const mockAllocations: AdminCourseAllocationSummary[] = [
     course: "EE-2101",
     semester: 7,
     session: "Fall 2026",
-    status: "Ongoing",
+    status: "Active",
+    passing_threshold: 50,
   },
   {
     urls: "/api/admin/allocations/180/",
@@ -77,7 +83,8 @@ export const mockAllocations: AdminCourseAllocationSummary[] = [
     course: "CS-4210",
     semester: 3,
     session: "Fall 2026",
-    status: "Ongoing",
+    status: "Active",
+    passing_threshold: 50,
   },
 ];
 
@@ -176,6 +183,7 @@ export function createAllocation(input: AllocationFormValue): AdminCourseAllocat
     semester: semester.semesterId,
     session: sessionLabelForSemester(semester.session),
     status: "Inactive",
+    passing_threshold: 50,
   };
   mockAllocations.push(record);
   return record;

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useAdminPageConfig } from "../components/layout/AdminShellContext";
 import { Breadcrumbs } from "../components/ui/Breadcrumbs";
+import { CourseCard } from "../components/ui/CourseCard";
 import { Panel } from "../components/ui/Panel";
 import { Select } from "../components/ui/Select";
 import { Tag } from "../components/ui/Tag";
@@ -22,6 +23,7 @@ import type {
 import type { StatusTone } from "../types/dashboard";
 import formStyles from "../components/ui/Form.module.css";
 import detailStyles from "./PersonDetailPage.module.css";
+import styles from "./SemesterDetailPage.module.css";
 
 const SEMESTER_STATUS_TONE: Record<SemesterStatus, StatusTone> = {
   Inactive: "warning",
@@ -29,37 +31,12 @@ const SEMESTER_STATUS_TONE: Record<SemesterStatus, StatusTone> = {
   Completed: "critical",
 };
 const ALLOCATION_STATUS_TONE: Record<CourseAllocationStatus, StatusTone> = {
-  Ongoing: "good",
+  Active: "good",
+  Locked: "warning",
   Completed: "good",
   Inactive: "warning",
   Cancelled: "critical",
 };
-
-function toLocalInputValue(iso: string | null): string {
-  if (!iso) return "";
-  const d = new Date(iso);
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-}
-
-function isActivationDeadlineLocked(activationDeadline: string | null): boolean {
-  return activationDeadline !== null && new Date(activationDeadline) < new Date();
-}
-
-function isClosingDeadlineLocked(activationDeadline: string | null, status: SemesterStatus): boolean {
-  if (!activationDeadline) return true;
-  const activationPassed = new Date(activationDeadline) < new Date();
-  if (!activationPassed && status === "Inactive") return true;
-  return false;
-}
-
-function validateDeadline(iso: string): string | null {
-  const value = new Date(iso);
-  const now = new Date();
-  if (value < now) return "Deadline cannot be in the past.";
-  if (value.getTime() - now.getTime() < 7 * 60 * 1000) return "Deadline must be at least a few minutes from now.";
-  return null;
-}
 
 export function SemesterDetailPage() {
   const { semesterId } = useParams<{ semesterId: string }>();
@@ -78,8 +55,6 @@ export function SemesterDetailPage() {
   const [refreshKey, setRefreshKey] = useState(0);
 
   const [sessionInput, setSessionInput] = useState("");
-  const [activationInput, setActivationInput] = useState("");
-  const [closingInput, setClosingInput] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
 
@@ -108,8 +83,6 @@ export function SemesterDetailPage() {
         setUngradedCount(enrollRes.filter((e) => e.result === null).length);
         setHasTranscripts(transcriptRes.length > 0);
         setSessionInput(semRes.session !== null ? String(semRes.session) : "");
-        setActivationInput(toLocalInputValue(semRes.activation_deadline));
-        setClosingInput(toLocalInputValue(semRes.closing_deadline));
       })
       .catch((err: unknown) => {
         if (cancelled) return;
@@ -139,50 +112,6 @@ export function SemesterDetailPage() {
       });
       invalidateCache("admin:classes");
       showToast("Session updated.");
-      setRefreshKey((k) => k + 1);
-    } catch (err) {
-      const { banner, fields } = apiFormErrors(err);
-      setError(banner);
-      setFieldErrors(fields);
-    }
-  }
-
-  async function handleSetActivation(e: React.FormEvent) {
-    e.preventDefault();
-    if (!semesterId) return;
-    setError(null);
-    setFieldErrors({});
-    const iso = new Date(activationInput).toISOString();
-    const validationError = validateDeadline(iso);
-    if (validationError) {
-      setFieldErrors({ activation_deadline: validationError });
-      return;
-    }
-    try {
-      await apiMutate<AdminSemester>(`/admin/semesters/${semesterId}/`, "PATCH", { activation_deadline: iso });
-      showToast("Activation deadline set. The move to Active happens automatically at that time (semester_activation_task).");
-      setRefreshKey((k) => k + 1);
-    } catch (err) {
-      const { banner, fields } = apiFormErrors(err);
-      setError(banner);
-      setFieldErrors(fields);
-    }
-  }
-
-  async function handleSetClosing(e: React.FormEvent) {
-    e.preventDefault();
-    if (!semesterId) return;
-    setError(null);
-    setFieldErrors({});
-    const iso = new Date(closingInput).toISOString();
-    const validationError = validateDeadline(iso);
-    if (validationError) {
-      setFieldErrors({ closing_deadline: validationError });
-      return;
-    }
-    try {
-      await apiMutate<AdminSemester>(`/admin/semesters/${semesterId}/`, "PATCH", { closing_deadline: iso });
-      showToast("Closing deadline set. The move to Completed happens automatically at that time (semester_closing_task).");
       setRefreshKey((k) => k + 1);
     } catch (err) {
       const { banner, fields } = apiFormErrors(err);
@@ -234,9 +163,11 @@ export function SemesterDetailPage() {
   const semesterDetail = matchingClass?.scheme_of_studies?.find((s) => s.semester_id === semester.semester_id);
   const courseCodes = semesterDetail?.semesterdetails_set.map((d) => d.course).filter((c): c is string => c !== null) ?? [];
 
-  const activationLocked = isActivationDeadlineLocked(semester.activation_deadline);
-  const closingLocked = isClosingDeadlineLocked(semester.activation_deadline, semester.status);
-  const sessionLocked = activationLocked;
+  // Activation and closing no longer live on the semester itself — they're set once on the
+  // session and cascade down to every semester bound to it. A semester's own `session` field stays
+  // writable only while it's still Inactive.
+  const boundSession = sessions.find((s) => s.id === semester.session);
+  const sessionLocked = semester.status !== "Inactive";
 
   return (
     <>
@@ -296,84 +227,27 @@ export function SemesterDetailPage() {
             </div>
           </div>
           <span className={formStyles.hint}>
-            {sessionLocked
-              ? "Locked — once activation_deadline has passed, session can no longer change (SemesterSerializer.get_extra_kwargs)."
-              : "Also editable from the class's own scheme of studies — same underlying field."}
+            {sessionLocked ? (
+              "Locked. A semester's session is fixed once it's no longer Inactive."
+            ) : (
+              "Also editable from the class's own scheme of studies, same underlying field."
+            )}
           </span>
         </form>
       </Panel>
 
-      <Panel title="Activation">
-        <form className={detailStyles.panelBody} onSubmit={handleSetActivation}>
-          <div className={formStyles.row}>
-            <div className={formStyles.field} data-invalid={fieldErrors.activation_deadline ? "true" : undefined}>
-              <label htmlFor="activation_deadline">Activation deadline</label>
-              <input
-                id="activation_deadline"
-                type="datetime-local"
-                value={activationInput}
-                onChange={(e) => setActivationInput(e.target.value)}
-                disabled={activationLocked}
-                required
-              />
-              {fieldErrors.activation_deadline && <span className={formStyles.fieldError}>{fieldErrors.activation_deadline}</span>}
-            </div>
-            <div className={formStyles.field}>
-              <label>&nbsp;</label>
-              <button type="submit" className={formStyles.primaryButton} disabled={activationLocked}>
-                Set activation deadline
-              </button>
-            </div>
-          </div>
-          <span className={formStyles.hint}>
-            {activationLocked
-              ? "Locked — activation deadline has already passed."
-              : "A class can only have one semester active or activating at a time — setting this will fail if another semester in this class already is."}
-          </span>
-        </form>
-      </Panel>
-
-      <Panel title="Closing">
-        <form className={detailStyles.panelBody} onSubmit={handleSetClosing}>
-          <div className={formStyles.row}>
-            <div className={formStyles.field} data-invalid={fieldErrors.closing_deadline ? "true" : undefined}>
-              <label htmlFor="closing_deadline">Closing deadline</label>
-              <input
-                id="closing_deadline"
-                type="datetime-local"
-                value={closingInput}
-                onChange={(e) => setClosingInput(e.target.value)}
-                disabled={closingLocked}
-                required
-              />
-              {fieldErrors.closing_deadline && <span className={formStyles.fieldError}>{fieldErrors.closing_deadline}</span>}
-            </div>
-            <div className={formStyles.field}>
-              <label>&nbsp;</label>
-              <button type="submit" className={formStyles.primaryButton} disabled={closingLocked}>
-                Set closing deadline
-              </button>
-            </div>
-          </div>
-          <span className={formStyles.hint}>
-            {closingLocked
-              ? "Locked until this semester has an activation deadline and has actually activated."
-              : ungradedCount > 0
-                ? `${ungradedCount} of ${enrolledCount} enrollments here still need a result before this can be set.`
-                : "All enrollments here already have a result — ready to close."}
-          </span>
-        </form>
-      </Panel>
-
-      {semester.closing_deadline !== null && (
+      {Boolean(boundSession?.closing_deadline) && (
         <Panel title="Transcripts">
           <div className={detailStyles.panelBody}>
-            <span className={formStyles.hint}>
-              Mirrors POST /api/admin/semesters/{semester.semester_id}/transcripts-create/
-              (TranscriptBulkCreateAPIView) — only shown here because closing_deadline is set,
-              matching when the real transcript_generation_url actually appears on this resource.
-              {hasTranscripts && " Transcripts already exist for at least one student here."}
-            </span>
+            {ungradedCount > 0 ? (
+              <span className={formStyles.hint}>
+                {ungradedCount} of {enrolledCount} enrollments here still need a result.
+              </span>
+            ) : (
+              hasTranscripts && (
+                <span className={formStyles.hint}>Transcripts already exist for at least one student here.</span>
+              )
+            )}
             <div className={formStyles.actions}>
               <button type="button" className={formStyles.primaryButton} onClick={handleGenerateTranscripts}>
                 Generate transcripts
@@ -386,24 +260,30 @@ export function SemesterDetailPage() {
         </Panel>
       )}
 
-      <Panel title="Scheme of studies" hint="Read-only here — edit from the class page">
+      <Panel title="Courses list" hint="Read-only here, edit from the class page">
         <div className={detailStyles.panelBody}>
           {courseCodes.length === 0 ? (
             <span className={formStyles.hint}>No courses assigned yet.</span>
           ) : (
-            <ul>
+            <div className={styles.courseGrid}>
               {courseCodes.map((code) => {
                 const course = courses.find((c) => c.course_code === code);
+                const meta: string[] = [];
+                if (course?.lab) meta.push("Lab");
+                if (course?.pre_requisite) meta.push(`Pre-req: ${course.pre_requisite}`);
                 return (
-                  <li key={code}>
-                    <Link to={`/admin/courses/${code}`} className={detailStyles.back}>
-                      {code}
-                    </Link>{" "}
-                    {course && `— ${course.course_name}`}
-                  </li>
+                  <CourseCard
+                    key={code}
+                    id={code}
+                    kicker={code}
+                    title={course?.course_name ?? "—"}
+                    status={{ label: course ? `${course.credit_hours} cr` : "—", tone: "good" }}
+                    meta={meta}
+                    href={`/admin/courses/${code}`}
+                  />
                 );
               })}
-            </ul>
+            </div>
           )}
         </div>
       </Panel>
@@ -417,7 +297,7 @@ export function SemesterDetailPage() {
               {allocations.map((a) => (
                 <li key={a.allocation_id}>
                   <Link to={`/admin/allocations/${a.allocation_id}`} className={detailStyles.back}>
-                    {a.course} — {a.faculty}
+                    {a.course} · {a.faculty}
                   </Link>{" "}
                   <Tag tone={ALLOCATION_STATUS_TONE[a.status]}>{a.status}</Tag>
                 </li>

@@ -240,7 +240,7 @@ export function ClassDetailPage() {
                 invalid={Boolean(fieldErrors.program)}
                 options={programs.map((p) => ({
                   value: p.program_id,
-                  label: `${p.program_id} — ${p.program_name}`,
+                  label: `${p.program_id} · ${p.program_name}`,
                 }))}
               />
               {fieldErrors.program && <span className={formStyles.fieldError}>{fieldErrors.program}</span>}
@@ -258,8 +258,7 @@ export function ClassDetailPage() {
             </div>
           </div>
           <span className={formStyles.hint}>
-            No lock rules here — ClassSerializer has no read_only fields at all, program and batch
-            year stay editable for the life of the class.
+            No lock rules here. Program and batch year stay editable for the life of the class.
           </span>
           <div className={formStyles.actions}>
             <button type="submit" className={formStyles.primaryButton}>
@@ -330,7 +329,7 @@ export function ClassDetailPage() {
                               value: c.course_code,
                               label: c.course_code,
                               sublabel: c.course_name,
-                              triggerLabel: `${c.course_code} — ${c.course_name}`,
+                              triggerLabel: `${c.course_code} · ${c.course_name}`,
                             }))}
                           />
                           <button

@@ -3,13 +3,13 @@ import { DashboardShell } from "./DashboardShell";
 import { ADMIN_RAIL_ITEMS } from "./adminRailItems";
 import { AdminShellProvider, useAdminShellConfig } from "./AdminShellContext";
 import { useAdminIdentity } from "../../hooks/useAdminIdentity";
-import { useCurrentSessionLabel } from "../../hooks/useCurrentSession";
+import { useCurrentSessionPill } from "../../hooks/useCurrentSession";
 
 function AdminLayoutShell() {
   const location = useLocation();
   const { avatarInitials, avatarSrc, subtitle } = useAdminIdentity();
   const { pageTitle, sidePanel } = useAdminShellConfig();
-  const sessionLabel = useCurrentSessionLabel();
+  const sessionPill = useCurrentSessionPill();
 
   const activeRailId =
     ADMIN_RAIL_ITEMS.find(
@@ -24,7 +24,7 @@ function AdminLayoutShell() {
       avatarInitials={avatarInitials}
       avatarSrc={avatarSrc}
       pageTitle={pageTitle}
-      sessionLabel={sessionLabel ?? undefined}
+      sessionPill={sessionPill}
       subtitle={subtitle}
       profileHref="/admin/profile"
       sidePanel={sidePanel ?? undefined}

@@ -26,7 +26,7 @@ export function BulkCreatePage() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const type = parseType(searchParams.get("type"));
-  useAdminPageConfig(type === "faculty" ? "Bulk import — Faculty" : type === "student" ? "Bulk import — Students" : "Bulk import");
+  useAdminPageConfig(type === "faculty" ? "Bulk import: Faculty" : type === "student" ? "Bulk import: Students" : "Bulk import");
 
   const [file, setFile] = useState<File | null>(null);
   const [result, setResult] = useState<BulkCreateResult | null>(null);
@@ -108,7 +108,7 @@ export function BulkCreatePage() {
       />
 
       <div className={styles.card}>
-        <h1 className={styles.headline}>Bulk import{type === "faculty" ? " — Faculty" : type === "student" ? " — Students" : ""}</h1>
+        <h1 className={styles.headline}>Bulk import{type === "faculty" ? ": Faculty" : type === "student" ? ": Students" : ""}</h1>
 
         <div className={formStyles.actions}>
           <button type="button" className={formStyles.secondaryButton} onClick={() => setType("faculty")} disabled={type === "faculty"}>
@@ -153,7 +153,7 @@ export function BulkCreatePage() {
         {result && (
           <>
             <div className={formStyles.banner}>
-              {result.row_count} row{result.row_count === 1 ? "" : "s"} read — {result.insert_count} created,{" "}
+              {result.row_count} row{result.row_count === 1 ? "" : "s"} read, {result.insert_count} created,{" "}
               {result.error_row_count} failed.
             </div>
             {result.errors.length > 0 && (

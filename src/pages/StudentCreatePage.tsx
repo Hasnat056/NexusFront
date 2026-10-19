@@ -141,10 +141,6 @@ export function StudentCreatePage() {
 
       <form className={styles.card} onSubmit={handleSubmit}>
         <h1 className={styles.headline}>New student</h1>
-        <p className={styles.subhead}>
-          Mirrors POST /api/admin/students/ (AdminModule/views.py::StudentListCreateAPIView) — person_id and
-          username are generated server-side, not entered here.
-        </p>
 
         {error && <div className={formStyles.errorBanner}>{error}</div>}
 
@@ -202,7 +198,6 @@ export function StudentCreatePage() {
               onChange={(e) => setValue({ ...value, admission_date: e.target.value })}
               required
             />
-            <span className={formStyles.hint}>Must fall within the current calendar year (StudentSerializer.validate_admission_date).</span>
             {studentFieldErrors.admission_date && <span className={formStyles.fieldError}>{studentFieldErrors.admission_date}</span>}
           </div>
         </div>

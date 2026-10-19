@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { useAdminPageConfig } from "../components/layout/AdminShellContext";
 import { Breadcrumbs } from "../components/ui/Breadcrumbs";
@@ -7,13 +7,12 @@ import { Tag } from "../components/ui/Tag";
 import { useToast } from "../components/ui/ToastContext";
 import { apiGet, apiGetAllPages, apiMutate, cached, invalidateCache } from "../lib/auth";
 import { ApiError, apiErrorMessage, apiFormErrors } from "../lib/api";
-import { eligibleSemestersForAllocation, semesterChoice } from "../lib/allocationEligibility";
+import { semesterChoice } from "../lib/allocationEligibility";
 import type {
   AdminClass,
   AdminCourseAllocationSummary,
   AdminFacultyListItem,
   AdminSemester,
-  AdminSession,
   CourseAllocationStatus,
 } from "../types/api";
 import type { StatusTone } from "../types/dashboard";
@@ -22,7 +21,8 @@ import styles from "./PersonDetailPage.module.css";
 
 const ALLOCATION_STATUS_TONE: Record<CourseAllocationStatus, StatusTone> = {
   Inactive: "warning",
-  Ongoing: "good",
+  Active: "good",
+  Locked: "warning",
   Completed: "critical",
   Cancelled: "critical",
 };
@@ -37,13 +37,12 @@ export function AllocationDetailPage() {
   const [record, setRecord] = useState<AdminCourseAllocationSummary | null>(null);
   const [faculty, setFaculty] = useState<AdminFacultyListItem[]>([]);
   const [semesters, setSemesters] = useState<AdminSemester[]>([]);
-  const [sessions, setSessions] = useState<AdminSession[]>([]);
   const [classes, setClasses] = useState<AdminClass[]>([]);
   const [notFound, setNotFound] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
 
-  const [formValue, setFormValue] = useState<{ faculty: string; course: string; semester: string } | null>(null);
+  const [formValue, setFormValue] = useState<{ faculty: string } | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [confirmingDelete, setConfirmingDelete] = useState(false);
@@ -57,15 +56,13 @@ export function AllocationDetailPage() {
       apiGet<AdminCourseAllocationSummary>(`/admin/allocations/${allocationId}/`),
       cached("admin:all-faculty", () => apiGetAllPages<AdminFacultyListItem>("/admin/faculty/")),
       apiGetAllPages<AdminSemester>("/admin/semesters/"),
-      cached("admin:sessions", () => apiGetAllPages<AdminSession>("/admin/sessions/")),
       cached("admin:classes", () => apiGetAllPages<AdminClass>("/admin/classes/")),
     ])
-      .then(([recordRes, facultyRes, semestersRes, sessionsRes, classesRes]) => {
+      .then(([recordRes, facultyRes, semestersRes, classesRes]) => {
         if (cancelled) return;
         setRecord(recordRes);
         setFaculty(facultyRes);
         setSemesters(semestersRes);
-        setSessions(sessionsRes);
         setClasses(classesRes);
       })
       .catch((err: unknown) => {
@@ -85,17 +82,11 @@ export function AllocationDetailPage() {
     };
   }, [allocationId, navigate, refreshKey]);
 
-  const eligibleSemesters = useMemo(() => eligibleSemestersForAllocation(semesters, sessions, classes), [semesters, sessions, classes]);
   const currentChoice = record ? semesterChoice(record.semester, semesters, classes) : undefined;
-  const semesterChoices =
-    currentChoice && !eligibleSemesters.some((s) => s.semesterId === currentChoice.semesterId)
-      ? [currentChoice, ...eligibleSemesters]
-      : eligibleSemesters;
-  const selectedSemester = formValue ? semesterChoice(Number(formValue.semester), semesters, classes) : undefined;
 
   useEffect(() => {
     if (editing && record) {
-      setFormValue({ faculty: record.faculty, course: record.course, semester: String(record.semester) });
+      setFormValue({ faculty: record.faculty });
       setActionError(null);
       setFieldErrors({});
     }
@@ -107,10 +98,10 @@ export function AllocationDetailPage() {
     setActionError(null);
     setFieldErrors({});
     try {
+      // Course and semester come from the scheme of studies and are always read-only for Admin on
+      // an existing allocation — only faculty can be reassigned here.
       await apiMutate<AdminCourseAllocationSummary>(`/admin/allocations/${allocationId}/`, "PATCH", {
         faculty: formValue.faculty,
-        course: formValue.course,
-        semester: Number(formValue.semester),
       });
       invalidateCache("admin:allocations");
       navigate(viewPath);
@@ -163,7 +154,7 @@ export function AllocationDetailPage() {
     return <p className={styles.empty}>Loading allocation…</p>;
   }
 
-  const editable = record.status === "Inactive";
+  const editable = record.status === "Inactive" || record.status === "Locked";
 
   return (
     <>
@@ -200,39 +191,17 @@ export function AllocationDetailPage() {
                 invalid={Boolean(fieldErrors.faculty)}
                 options={faculty.map((f) => ({
                   value: f.person.person_id,
-                  label: `${f.person.person_id} — ${f.person.first_name} ${f.person.last_name}`,
+                  label: `${f.person.person_id} · ${f.person.first_name} ${f.person.last_name}`,
                 }))}
               />
               {fieldErrors.faculty && <span className={formStyles.fieldError}>{fieldErrors.faculty}</span>}
             </div>
-            <div className={formStyles.field} data-invalid={fieldErrors.semester ? "true" : undefined}>
-              <label htmlFor="semester">Semester</label>
-              <Select
-                id="semester"
-                value={formValue.semester}
-                onChange={(next) => setFormValue({ ...formValue, semester: next, course: "" })}
-                placeholder="Select semester…"
-                invalid={Boolean(fieldErrors.semester)}
-                options={semesterChoices.map((s) => ({ value: String(s.semesterId), label: s.label }))}
-              />
-              {fieldErrors.semester && <span className={formStyles.fieldError}>{fieldErrors.semester}</span>}
-            </div>
-            <div className={formStyles.field} data-invalid={fieldErrors.course ? "true" : undefined}>
-              <label htmlFor="course">Course</label>
-              <Select
-                id="course"
-                value={formValue.course}
-                onChange={(next) => setFormValue({ ...formValue, course: next })}
-                placeholder="Select course…"
-                invalid={Boolean(fieldErrors.course)}
-                options={(selectedSemester?.courseCodes ?? []).map((code) => ({ value: code, label: code }))}
-              />
-              {fieldErrors.course && <span className={formStyles.fieldError}>{fieldErrors.course}</span>}
-            </div>
           </div>
           <span className={formStyles.hint}>
-            Session and status aren't editable here — session is a copy taken from the semester at
-            creation time, and status only ever moves outside this endpoint.
+            Course and semester come from the scheme of studies and aren't editable here — only the
+            teacher can be reassigned. Session and status aren't editable either: session is a copy
+            taken from the semester at creation time, and status only ever moves outside this
+            endpoint.
           </span>
           <div className={formStyles.actions}>
             <button type="submit" className={formStyles.primaryButton}>
@@ -247,11 +216,11 @@ export function AllocationDetailPage() {
         <div className={styles.profileCard}>
           <div className={styles.profileMain}>
             <h1 className={styles.name}>
-              {record.course} — {record.faculty}
+              {record.course} · {record.faculty}
             </h1>
             <p className={styles.subline}>
               Allocation #{record.allocation_id} · {currentChoice ? currentChoice.label : `Semester #${record.semester}`} ·{" "}
-              {record.session}
+              {record.session} · Passing threshold {record.passing_threshold}%
             </p>
           </div>
           <div className={formStyles.actions}>
@@ -279,9 +248,8 @@ export function AllocationDetailPage() {
 
       {!editing && !editable && (
         <p className={formStyles.hint}>
-          Locked — AdminCourseAllocationPermissions only allows editing or deleting an allocation
-          while its status is "Inactive"; once it moves to Ongoing, Completed, or Cancelled it's
-          read-only for Admin.
+          Reassigning or deleting is only allowed while status is "Inactive" or "Locked". Once it
+          moves to Active or Completed it's read-only for Admin; Cancelled is always read-only.
         </p>
       )}
     </>

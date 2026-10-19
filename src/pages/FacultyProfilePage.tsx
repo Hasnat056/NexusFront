@@ -195,8 +195,8 @@ export function FacultyProfilePage() {
             </div>
           </div>
           <span className={formStyles.hint}>
-            Department, designation, and joining date are locked — FacultySerializer marks them
-            read_only when a faculty member edits their own record.
+            Department, designation, and joining date are locked when a faculty member edits their
+            own record.
           </span>
 
           <div className={formStyles.actions}>

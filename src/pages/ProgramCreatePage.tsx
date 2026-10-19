@@ -83,10 +83,6 @@ export function ProgramCreatePage() {
 
       <form className={styles.card} onSubmit={handleSubmit}>
         <h1 className={styles.headline}>New program</h1>
-        <p className={styles.subhead}>
-          Mirrors POST /api/admin/programs/ (AdminModule/views.py::ProgramListCreateAPIView) — unlike
-          Faculty/Student, program_id has no server-side generation, so it's entered here directly.
-        </p>
 
         {error && <div className={formStyles.errorBanner}>{error}</div>}
 

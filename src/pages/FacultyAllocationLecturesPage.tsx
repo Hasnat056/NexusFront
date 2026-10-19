@@ -313,7 +313,7 @@ export function FacultyAllocationLecturesPage() {
       profileHref="/faculty/profile"
       avatarInitials={avatarInitials}
       avatarSrc={dashboard.faculty.image}
-      pageTitle={`${detail.course} — Lectures`}
+      pageTitle={`${detail.course} · Lectures`}
       subtitle={`${detail.session} · Semester ${detail.semester} · ${dashboard.faculty.institutional_email}`}
     >
       <Breadcrumbs
@@ -404,7 +404,7 @@ export function FacultyAllocationLecturesPage() {
                 render: (l) => (
                   <>
                     <strong>
-                      #{l.lecture_no} — {l.topic}
+                      #{l.lecture_no}: {l.topic}
                     </strong>
                     <div className={formStyles.hint}>{l.venue}</div>
                   </>
@@ -458,7 +458,7 @@ export function FacultyAllocationLecturesPage() {
 
       {expandedLecture && (
         <Panel
-          title={`Attendance — Lecture ${expandedLecture.lecture_no}`}
+          title={`Attendance: Lecture ${expandedLecture.lecture_no}`}
           hint={`${formatDateTime(expandedLecture.starting_time)} · ${expandedLecture.venue} · ${expandedLecture.duration} min`}
           headerExtra={
             <button type="button" className={formStyles.primaryButton} onClick={handleSaveAttendance} disabled={savingAttendance || locked}>

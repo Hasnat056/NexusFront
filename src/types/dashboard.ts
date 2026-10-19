@@ -1,4 +1,4 @@
-export type StatusTone = "good" | "warning" | "critical";
+export type StatusTone = "good" | "warning" | "critical" | "info" | "neutral";
 
 export interface StatBreakdownSegment {
   label: string;

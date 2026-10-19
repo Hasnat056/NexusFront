@@ -27,7 +27,7 @@ export function EnrollmentPickCard({ allocation, confirmed, onToggle }: Enrollme
         className={styles.toggle}
         data-on={confirmed}
         aria-pressed={confirmed}
-        aria-label={`Toggle enrollment for ${course_data.course_code} — ${course_data.course_name}`}
+        aria-label={`Toggle enrollment for ${course_data.course_code}: ${course_data.course_name}`}
         onClick={() => onToggle(allocation_id)}
       />
     </div>

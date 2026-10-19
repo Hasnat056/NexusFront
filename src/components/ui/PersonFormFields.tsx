@@ -218,7 +218,6 @@ export function PersonFormFields<T extends PersonFormShape>({
               </button>
             )}
           </div>
-          <span className={styles.hint}>Proxied to Cloudinary by the backend on submit — jpeg/png only.</span>
           {fieldErrors.image && <span className={styles.fieldError}>{fieldErrors.image}</span>}
         </div>
       </div>

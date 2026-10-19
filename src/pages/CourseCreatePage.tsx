@@ -92,10 +92,6 @@ export function CourseCreatePage() {
 
       <form className={styles.card} onSubmit={handleSubmit}>
         <h1 className={styles.headline}>New course</h1>
-        <p className={styles.subhead}>
-          Mirrors POST /api/admin/courses/ (AdminModule/views.py::CourseListCreateAPIView) —
-          course_code has no server-side generation, so it's entered here directly.
-        </p>
 
         {error && <div className={formStyles.errorBanner}>{error}</div>}
 
@@ -131,7 +127,7 @@ export function CourseCreatePage() {
               invalid={Boolean(fieldErrors.pre_requisite)}
               options={[
                 { value: "", label: "None" },
-                ...existingCourses.map((c) => ({ value: c.course_code, label: `${c.course_code} — ${c.course_name}` })),
+                ...existingCourses.map((c) => ({ value: c.course_code, label: `${c.course_code} · ${c.course_name}` })),
               ]}
             />
             {fieldErrors.pre_requisite && <span className={formStyles.fieldError}>{fieldErrors.pre_requisite}</span>}
@@ -148,7 +144,7 @@ export function CourseCreatePage() {
               onChange={(e) => setValue({ ...value, credit_hours: e.target.value })}
             />
             <span className={formStyles.hint}>
-              If this course has a lab, 1 credit hour is added automatically on save — enter the
+              If this course has a lab, 1 credit hour is added automatically on save. Enter the
               lecture portion only.
             </span>
             {fieldErrors.credit_hours && <span className={formStyles.fieldError}>{fieldErrors.credit_hours}</span>}

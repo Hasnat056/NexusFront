@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import type { CurrentSessionPill } from "../../hooks/useCurrentSession";
 import { Rail, type RailNavItem } from "./Rail";
 import { TopBar } from "./TopBar";
 import styles from "./DashboardShell.module.css";
@@ -10,7 +11,7 @@ interface DashboardShellProps {
   avatarInitials: string;
   avatarSrc?: string | null;
   pageTitle: string;
-  sessionLabel?: string;
+  sessionPill?: CurrentSessionPill | null;
   subtitle: string;
   topBarExtra?: ReactNode;
   sidePanel?: ReactNode;
@@ -25,7 +26,7 @@ export function DashboardShell({
   avatarInitials,
   avatarSrc,
   pageTitle,
-  sessionLabel,
+  sessionPill,
   subtitle,
   topBarExtra,
   sidePanel,
@@ -38,7 +39,7 @@ export function DashboardShell({
       <div className={styles.main}>
         <TopBar
           title={pageTitle}
-          sessionLabel={sessionLabel}
+          sessionPill={sessionPill}
           subtitle={subtitle}
           avatarInitials={avatarInitials}
           avatarSrc={avatarSrc}

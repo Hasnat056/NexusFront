@@ -11,10 +11,11 @@ import type { AdminCourseAllocationSummary, CourseAllocationStatus } from "../ty
 import type { StatusTone } from "../types/dashboard";
 import styles from "./FacultyListPage.module.css";
 
-const STATUS_OPTIONS: CourseAllocationStatus[] = ["Inactive", "Ongoing", "Completed", "Cancelled"];
+const STATUS_OPTIONS: CourseAllocationStatus[] = ["Inactive", "Active", "Locked", "Completed", "Cancelled"];
 const ALLOCATION_STATUS_TONE: Record<CourseAllocationStatus, StatusTone> = {
   Inactive: "warning",
-  Ongoing: "good",
+  Active: "good",
+  Locked: "warning",
   Completed: "critical",
   Cancelled: "critical",
 };
@@ -115,6 +116,8 @@ export function AllocationListPage() {
         ]}
         addHref="/admin/allocations/new"
         addLabel="+ New allocation"
+        secondaryHref="/admin/allocations/bulk"
+        secondaryLabel="Bulk allocate"
       />
 
       <Panel title="Allocations" hint={allocations ? `${rows.length} of ${allocations.length}` : undefined}>

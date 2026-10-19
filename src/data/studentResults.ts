@@ -19,12 +19,15 @@ export interface CourseResultRow {
   assessments: AssessmentMarkRow[];
 }
 
-/** Every Completed enrollment's course-level result, straight from the `result` field
- * StudentEnrollmentSerializer nests on each enrollment — null until Faculty has calculated one,
- * even for a Completed enrollment (see EnrollmentResult's doc comment in types/api.ts). */
+/** Every graded enrollment's course-level result, straight from the `result` field
+ * StudentEnrollmentSerializer nests on each enrollment — null until the enrollment's ALLOCATION
+ * (not the enrollment itself) reaches 'Completed', which only happens once the semester actually
+ * closes; an enrollment can already show its own status as 'Completed' well before that. Filtering
+ * on `result != null` is what actually matches what the API sends, rather than re-deriving
+ * readiness from enrollment.status. */
 export function selectCourseResults(enrollments: StudentEnrollment[]): CourseResultRow[] {
   return enrollments
-    .filter((e) => e.status === "Completed")
+    .filter((e) => e.result != null)
     .map((e) => {
       const course = e.allocation_details.course_details;
       return {

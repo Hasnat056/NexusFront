@@ -24,7 +24,7 @@ export function EnrollmentCreatePage() {
     let cancelled = false;
     Promise.all([
       cached("admin:all-students", () => apiGetAllPages<AdminStudentListItem>("/admin/students/")),
-      apiGetAllPages<AdminCourseAllocationSummary>("/admin/allocations/?status=Ongoing"),
+      apiGetAllPages<AdminCourseAllocationSummary>("/admin/allocations/?status=Active"),
     ])
       .then(([studentsRes, allocationsRes]) => {
         if (cancelled) return;
@@ -73,11 +73,6 @@ export function EnrollmentCreatePage() {
 
       <form className={styles.card} onSubmit={handleSubmit}>
         <h1 className={styles.headline}>New enrollment</h1>
-        <p className={styles.subhead}>
-          Mirrors POST /api/admin/enrollments/ (AdminModule/views.py::EnrollmentListCreateAPIView)
-          — the allocation list below is restricted to allocations with status "Ongoing"
-          (EnrollmentSerializer.get_fields()), same rule the real API enforces.
-        </p>
 
         {error && <div className={formStyles.errorBanner}>{error}</div>}
 
@@ -85,7 +80,7 @@ export function EnrollmentCreatePage() {
           <p className={formStyles.hint}>Loading…</p>
         ) : allocations.length === 0 ? (
           <p className={formStyles.hint}>
-            No allocation is currently "Ongoing" — an allocation needs to move past "Inactive"
+            No allocation is currently "Active". An allocation needs to move past "Inactive"
             before a student can enroll in it.
           </p>
         ) : (
@@ -101,7 +96,7 @@ export function EnrollmentCreatePage() {
                   invalid={Boolean(fieldErrors.student)}
                   options={students.map((s) => ({
                     value: s.person.person_id,
-                    label: `${s.person.person_id} — ${s.person.first_name} ${s.person.last_name}`,
+                    label: `${s.person.person_id} · ${s.person.first_name} ${s.person.last_name}`,
                   }))}
                 />
                 {fieldErrors.student && <span className={formStyles.fieldError}>{fieldErrors.student}</span>}

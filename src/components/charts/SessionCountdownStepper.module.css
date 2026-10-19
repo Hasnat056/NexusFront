@@ -1,0 +1,179 @@
+.stepper {
+  display: flex;
+  align-items: flex-end;
+  padding: 0.4rem 0.2rem 0.1rem;
+}
+
+.stepper[data-size="sm"] {
+  align-items: center;
+  padding: 0;
+  gap: 0;
+}
+
+.segment {
+  display: flex;
+  align-items: center;
+  flex: 1 1 0;
+  min-width: 2.75rem;
+}
+
+.stepper[data-size="sm"] .segment {
+  flex: 0 0 auto;
+  min-width: 0;
+}
+
+.connector {
+  flex: 1 1 auto;
+  height: 3.5px;
+  border-radius: 2px;
+  margin: 0 0.35rem;
+  background: var(--color-border);
+  transform-origin: left;
+  animation: fillLine 0.5s ease-out both;
+}
+
+.stepper[data-size="sm"] .connector {
+  flex: 0 0 auto;
+  width: 20px;
+  margin: 0 2px;
+}
+
+.connector[data-state="passed"][data-tone="info"] {
+  background: var(--color-info);
+}
+
+.connector[data-state="passed"][data-tone="good"] {
+  background: var(--color-good);
+}
+
+.connector[data-state="passed"][data-tone="critical"] {
+  background: var(--color-critical);
+}
+
+/* -soft tokens (12% alpha, tuned for text-legible Tag backgrounds) read as barely-there on a thin
+   2px line, so "upcoming" gets its own more-visible mid-strength tint instead — still clearly
+   lighter than a "passed" segment's full-strength fill, but unmistakably the tone it's leading to. */
+.connector[data-state="upcoming"][data-tone="info"] {
+  background: rgba(59, 110, 165, 0.45);
+}
+
+.connector[data-state="upcoming"][data-tone="good"] {
+  background: rgba(63, 138, 92, 0.45);
+}
+
+.connector[data-state="upcoming"][data-tone="critical"] {
+  background: rgba(178, 59, 59, 0.45);
+}
+
+.connector[data-state="unset"] {
+  background: rgba(138, 128, 113, 0.35);
+}
+
+@keyframes fillLine {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .connector {
+    animation: none;
+  }
+}
+
+.step {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.3rem;
+  flex: 0 0 auto;
+}
+
+.stepper[data-size="sm"] .step {
+  flex-direction: row;
+  gap: 0.2rem;
+}
+
+.days {
+  font-size: 0.68rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.stepper[data-size="sm"] .days {
+  font-size: 0.62rem;
+}
+
+.days[data-tone="info"] {
+  color: var(--color-info);
+}
+
+.days[data-tone="good"] {
+  color: var(--color-good);
+}
+
+.days[data-tone="critical"] {
+  color: var(--color-critical);
+}
+
+.dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--color-surface);
+  border: 2px solid var(--color-border);
+  box-sizing: border-box;
+  flex: 0 0 auto;
+}
+
+.stepper[data-size="sm"] .dot {
+  width: 6px;
+  height: 6px;
+  border-width: 1.5px;
+}
+
+.dot[data-state="passed"] {
+  background: var(--color-muted);
+  border-color: var(--color-muted);
+}
+
+.dot[data-state="passed"][data-tone="info"] {
+  background: var(--color-info);
+  border-color: var(--color-info);
+}
+
+.dot[data-state="passed"][data-tone="good"] {
+  background: var(--color-good);
+  border-color: var(--color-good);
+}
+
+.dot[data-state="passed"][data-tone="critical"] {
+  background: var(--color-critical);
+  border-color: var(--color-critical);
+}
+
+.dot[data-state="upcoming"][data-tone="info"] {
+  border-color: var(--color-info);
+}
+
+.dot[data-state="upcoming"][data-tone="good"] {
+  border-color: var(--color-good);
+}
+
+.dot[data-state="upcoming"][data-tone="critical"] {
+  border-color: var(--color-critical);
+}
+
+.dot[data-state="unset"] {
+  border-color: var(--color-neutral-soft);
+}
+
+.label {
+  font-size: 0.7rem;
+  color: var(--color-muted);
+  white-space: nowrap;
+}

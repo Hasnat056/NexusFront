@@ -213,7 +213,7 @@ export function CourseDetailPage() {
                 invalid={Boolean(fieldErrors.pre_requisite)}
                 options={[
                   { value: "", label: "None" },
-                  ...otherCourses.map((c) => ({ value: c.course_code, label: `${c.course_code} — ${c.course_name}` })),
+                  ...otherCourses.map((c) => ({ value: c.course_code, label: `${c.course_code} · ${c.course_name}` })),
                 ]}
               />
               {fieldErrors.pre_requisite && <span className={formStyles.fieldError}>{fieldErrors.pre_requisite}</span>}

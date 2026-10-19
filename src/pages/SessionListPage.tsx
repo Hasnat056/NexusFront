@@ -26,9 +26,9 @@ import listStyles from "./SessionListPage.module.css";
 const SESSION_PERIODS: SessionPeriod[] = ["Fall", "Spring"];
 const SESSION_STATUSES: SessionStatus[] = ["Inactive", "Initiated", "Available", "Active", "Completed"];
 const SESSION_STATUS_TONE: Record<SessionStatus, StatusTone> = {
-  Inactive: "warning",
+  Inactive: "neutral",
   Initiated: "warning",
-  Available: "good",
+  Available: "info",
   Active: "good",
   Completed: "critical",
 };

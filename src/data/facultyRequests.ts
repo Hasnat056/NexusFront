@@ -16,5 +16,5 @@ export function extractIdFromUrl(url: string): string {
 
 export function facultyRequestHeadline(request: FacultyChangeRequest): string {
   const label = CHANGE_TYPE_LABEL[request.change_type];
-  return request.target_allocation !== null ? `${label} — allocation #${request.target_allocation}` : label;
+  return request.target_allocation !== null ? `${label}: allocation #${request.target_allocation}` : label;
 }

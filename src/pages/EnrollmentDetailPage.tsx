@@ -12,10 +12,15 @@ import type { StatusTone } from "../types/dashboard";
 import formStyles from "../components/ui/Form.module.css";
 import styles from "./PersonDetailPage.module.css";
 
+// Locked is a lifecycle-driven state (set alongside the allocation when the session's
+// closing_deadline is reached), not something Admin sets by hand — left out of the manually
+// selectable options here, same as Completed already effectively is once the object itself is
+// Locked/Completed (AdminEnrollmentPermissions.has_object_permission narrows those to GET-only).
 const STATUS_OPTIONS: EnrollmentStatus[] = ["Inactive", "Active", "Completed", "Dropped"];
 const ENROLLMENT_STATUS_TONE: Record<EnrollmentStatus, StatusTone> = {
   Inactive: "warning",
   Active: "good",
+  Locked: "warning",
   Completed: "critical",
   Dropped: "critical",
 };
@@ -133,7 +138,8 @@ export function EnrollmentDetailPage() {
     return <p className={styles.empty}>Loading enrollment…</p>;
   }
 
-  const deletable = record.status !== "Completed" && !record.result?.course_gpa;
+  const locked = record.status === "Locked" || record.status === "Completed";
+  const deletable = !locked && !record.result?.course_gpa;
 
   return (
     <>
@@ -174,7 +180,7 @@ export function EnrollmentDetailPage() {
             </div>
           </div>
           <span className={formStyles.hint}>
-            Student and allocation aren't editable after creation — only status moves here.
+            Student and allocation aren't editable after creation. Only status moves here.
           </span>
           <div className={formStyles.actions}>
             <button type="submit" className={formStyles.primaryButton}>
@@ -196,7 +202,7 @@ export function EnrollmentDetailPage() {
           </div>
           <div className={formStyles.actions}>
             <Tag tone={ENROLLMENT_STATUS_TONE[record.status]}>{record.status}</Tag>
-            {record.status === "Completed" ? (
+            {locked ? (
               <button type="button" className={formStyles.secondaryButton} disabled>
                 Edit
               </button>
@@ -226,17 +232,13 @@ export function EnrollmentDetailPage() {
         </div>
       )}
 
-      {!editing && record.status === "Completed" && (
+      {!editing && locked && (
         <p className={formStyles.hint}>
-          Locked — once an enrollment is Completed the permission layer only allows GET on this
-          record.
+          Read-only. Marks and edits freeze once an enrollment is Locked or Completed.
         </p>
       )}
-      {!editing && record.status !== "Completed" && !deletable && (
-        <p className={formStyles.hint}>
-          Deletion is blocked once this enrollment's Result has a course GPA set
-          (EnrollmentRetrieveUpdateDestroyAPIView.perform_destroy).
-        </p>
+      {!editing && !locked && !deletable && (
+        <p className={formStyles.hint}>Deletion is blocked once this enrollment's result has a course GPA set.</p>
       )}
     </>
   );

@@ -62,12 +62,6 @@ export function ClassCreatePage() {
 
       <form className={styles.card} onSubmit={handleSubmit}>
         <h1 className={styles.headline}>New class</h1>
-        <p className={styles.subhead}>
-          Mirrors POST /api/admin/classes/ (AdminModule/views.py::ClassListCreateAPIView) — only
-          program and batch year are set here. ClassSerializer.create() ignores scheme_of_studies
-          entirely and instead auto-generates a blank semester for each of the program's
-          total_semesters; you'll assign sessions and courses to those on the class's own page.
-        </p>
 
         {error && <div className={formStyles.errorBanner}>{error}</div>}
 
@@ -80,7 +74,7 @@ export function ClassCreatePage() {
               onChange={(next) => setValue({ ...value, program: next })}
               placeholder="Select a program…"
               invalid={Boolean(fieldErrors.program)}
-              options={programs.map((p) => ({ value: p.program_id, label: `${p.program_id} — ${p.program_name}` }))}
+              options={programs.map((p) => ({ value: p.program_id, label: `${p.program_id} · ${p.program_name}` }))}
             />
             {fieldErrors.program && <span className={formStyles.fieldError}>{fieldErrors.program}</span>}
           </div>

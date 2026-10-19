@@ -24,6 +24,7 @@ function classLabel(cls: Pick<AdminClass, "program" | "batch_year">): string {
 
 const ENROLLMENT_TONE: Record<AdminEnrollmentSummary["status"], StatusTone> = {
   Active: "good",
+  Locked: "warning",
   Completed: "good",
   Inactive: "warning",
   Dropped: "critical",
@@ -296,7 +297,6 @@ export function StudentDetailPage() {
                 value={formValue.admission_date}
                 onChange={(e) => setFormValue({ ...formValue, admission_date: e.target.value })}
               />
-              <span className={formStyles.hint}>Must fall within the current calendar year (StudentSerializer.validate_admission_date).</span>
               {studentFieldErrors.admission_date && <span className={formStyles.fieldError}>{studentFieldErrors.admission_date}</span>}
             </div>
           </div>
@@ -376,11 +376,7 @@ export function StudentDetailPage() {
             )}
           </Panel>
 
-          <p className={formStyles.hint}>
-            StudentRetrieveUpdateAPIView only wires GET/PUT/PATCH — there's no DELETE route for a
-            student record, so this app has no deletion action here (destroy_mixin exists on the
-            view but nothing routes DELETE to it).
-          </p>
+          <p className={formStyles.hint}>There's no way to delete a student record from here.</p>
         </>
       )}
     </>

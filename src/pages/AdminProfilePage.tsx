@@ -206,8 +206,7 @@ export function AdminProfilePage() {
             </div>
           </div>
           <span className={formStyles.hint}>
-            Joining date, leaving date, and status are locked — AdminSerializer marks them read_only when an
-            admin edits their own record.
+            Joining date, leaving date, and status are locked when an admin edits their own record.
           </span>
 
           <div className={formStyles.actions}>
